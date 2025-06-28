@@ -58,6 +58,7 @@ if menu == "Generadores":
                     "tipo": tipo,
                     "potencia": potencia,
                     "horas_uso": horas_uso,
+                    "estado": "Disponible",
                     "arreglos": [arreglo] if arreglo > 0 else []
                 })
                 st.success(f"✅ Generador '{nombre}' guardado correctamente.")
@@ -73,6 +74,7 @@ if menu == "Generadores":
                 gen["tipo"] = st.selectbox(f"Tipo [{gen['id']}]", ["Diesel", "Gas", "Eléctrico"], index=["Diesel", "Gas", "Eléctrico"].index(gen["tipo"]), key=f"t_{i}")
                 gen["potencia"] = st.number_input(f"Potencia (kV) [{gen['id']}]", value=gen["potencia"], min_value=0.0, key=f"p_{i}")
                 gen["horas_uso"] = st.number_input(f"Horas de uso acumuladas [{gen['id']}]", value=gen["horas_uso"], min_value=0.0, key=f"h_{i}")
+                gen["estado"] = st.selectbox(f"Estado [{gen['id']}]", ["Disponible", "En arriendo", "En reparacion", "Averiado", "Reservado"], index=["Disponible", "En arriendo", "En reparacion", "Averiado", "Reservado"].index(gen.get("estado", "Disponible")), key=f"e_{i}")
                 nuevo_arreglo = st.number_input(f"Nuevo monto de arreglo [{gen['id']}]", min_value=0.0, key=f"a_{i}")
                 if st.button(f"Añadir arreglo [{gen['id']}]", key=f"btn_a_{i}") and nuevo_arreglo > 0:
                     gen["arreglos"].append(nuevo_arreglo)
@@ -91,13 +93,14 @@ if menu == "Generadores":
             "Tipo": g["tipo"],
             "Potencia (kV)": g["potencia"],
             "Horas Uso": g["horas_uso"],
+            "Estado": g["estado"],
             "Total Arreglos": sum(g["arreglos"])
         } for g in st.session_state.generadores
     ]
     st.dataframe(pd.DataFrame(resumen))
 
 # =======================
-# 2. GESTIÓN DE CONTRATOS
+# 2. GESTIÓN DE CONTRATOS (MODIFICADO)
 # =======================
 elif menu == "Contratos":
     st.header("📄 Registro de Contratos")
@@ -107,22 +110,42 @@ elif menu == "Contratos":
     else:
         with st.form("form_contrato"):
             cliente = st.text_input("Nombre del cliente")
-            generador = st.selectbox("Asociar generador", [g["nombre"] for g in st.session_state.generadores])
+            generadores_disponibles = [g for g in st.session_state.generadores if g["estado"] == "Disponible"]
+            generadores_seleccionados = st.multiselect("Selecciona generadores para arriendo", [g["id"] for g in generadores_disponibles])
             monto = st.number_input("Monto del contrato ($)", min_value=0.0)
             duracion = st.number_input("Duración en meses", min_value=1)
             submit_c = st.form_submit_button("Guardar contrato")
 
             if submit_c and cliente:
+                for g in st.session_state.generadores:
+                    if g["id"] in generadores_seleccionados:
+                        g["estado"] = "En arriendo"
+
                 st.session_state.contratos.append({
                     "cliente": cliente,
-                    "generador": generador,
+                    "generadores": generadores_seleccionados,
                     "monto": monto,
-                    "duracion": duracion
+                    "duracion": duracion,
+                    "historial": generadores_seleccionados.copy()
                 })
                 st.success(f"Contrato con {cliente} guardado.")
 
         st.subheader("🗂 Contratos registrados")
-        st.dataframe(pd.DataFrame(st.session_state.contratos))
+        for i, c in enumerate(st.session_state.contratos):
+            with st.expander(f"📄 Contrato {i+1} - {c['cliente']}"):
+                st.write(f"Generadores actuales: {c['generadores']}")
+                agregar = st.multiselect("Agregar generadores", [g["id"] for g in st.session_state.generadores if g["estado"] == "Disponible"], key=f"add_{i}")
+                quitar = st.multiselect("Quitar generadores", c["generadores"], key=f"remove_{i}")
+                if st.button(f"Actualizar contrato {i+1}", key=f"btn_update_{i}"):
+                    for g in st.session_state.generadores:
+                        if g["id"] in agregar:
+                            g["estado"] = "En arriendo"
+                        if g["id"] in quitar:
+                            g["estado"] = "Disponible"
+                    c["generadores"] = list(set(c["generadores"]) - set(quitar) | set(agregar))
+                    c["historial"].extend([g for g in agregar if g not in c["historial"]])
+                    st.success("Contrato actualizado.")
+                st.write(f"Historial de generadores por este contrato: {c['historial']}")
 
 # =======================
 # 3. ANÁLISIS FINANCIERO (AMPLIADO)
@@ -137,7 +160,7 @@ elif menu == "Análisis Financiero":
         df["total_mensual"] = df["monto"] / df["duracion"]
 
         st.subheader("📌 Ingresos mensuales por contrato")
-        st.dataframe(df[["cliente", "generador", "total_mensual"]])
+        st.dataframe(df[["cliente", "generadores", "total_mensual"]])
 
         total_ingresos = df["monto"].sum()
         total_mensual = df["total_mensual"].sum()
@@ -146,28 +169,35 @@ elif menu == "Análisis Financiero":
         st.metric("Ingreso mensual estimado", f"${total_mensual:,.0f}")
 
         st.subheader("📈 Ingresos por generador")
-        ingresos_por_generador = df.groupby("generador")["monto"].sum()
-        st.bar_chart(ingresos_por_generador)
+        ingresos_por_generador = {}
+        for contrato in st.session_state.contratos:
+            monto_por_generador = contrato["monto"] / len(contrato["generadores"])
+            for gid in contrato["generadores"]:
+                ingresos_por_generador[gid] = ingresos_por_generador.get(gid, 0) + monto_por_generador
+        st.bar_chart(pd.Series(ingresos_por_generador))
+
+        st.subheader("💡 Rentabilidad por generador")
+        data = []
+        for g in st.session_state.generadores:
+            ingreso = ingresos_por_generador.get(g["id"], 0)
+            costo = sum(g["arreglos"])
+            utilidad = ingreso - costo
+            data.append({
+                "ID": g["id"],
+                "Nombre": g["nombre"],
+                "Ingreso": ingreso,
+                "Costo Arreglos": costo,
+                "Rentabilidad": utilidad
+            })
+        st.dataframe(pd.DataFrame(data))
 
         st.subheader("🔍 Análisis por contrato")
-        contrato_seleccionado = st.selectbox("Selecciona un contrato", df["cliente"] + " - " + df["generador"])
-        idx = df[(df["cliente"] + " - " + df["generador"]) == contrato_seleccionado].index[0]
-        contrato = df.loc[idx]
+        contrato_seleccionado = st.selectbox("Selecciona un contrato", [f"Contrato {i+1} - {c['cliente']}" for i, c in enumerate(st.session_state.contratos)])
+        index = int(contrato_seleccionado.split()[1]) - 1
+        contrato = st.session_state.contratos[index]
         st.write(f"**Cliente:** {contrato['cliente']}")
-        st.write(f"**Generador asociado:** {contrato['generador']}")
+        st.write(f"**Generadores actuales:** {contrato['generadores']}")
+        st.write(f"**Historial de generadores:** {contrato['historial']}")
         st.write(f"**Monto total:** ${contrato['monto']:,.0f}")
         st.write(f"**Duración:** {contrato['duracion']} meses")
-        st.write(f"**Ingreso mensual estimado:** ${contrato['total_mensual']:,.0f}")
-
-    if len(st.session_state.generadores) > 0:
-        st.subheader("🔍 Análisis por generador")
-        gen_df = pd.DataFrame(st.session_state.generadores)
-        generador_sel = st.selectbox("Selecciona un generador", gen_df["nombre"])
-        g = gen_df[gen_df["nombre"] == generador_sel].iloc[0]
-
-        st.write(f"**ID:** {g['id']}")
-        st.write(f"**Tipo:** {g['tipo']}")
-        st.write(f"**Potencia:** {g['potencia']} kV")
-        st.write(f"**Horas de uso:** {g['horas_uso']} h")
-        st.write(f"**Arreglos realizados:** {g['arreglos']}")
-        st.write(f"**Monto total en arreglos:** ${sum(g['arreglos']):,.0f}")
+        st.write(f"**Ingreso mensual estimado:** ${contrato['monto'] / contrato['duracion']:,.0f}")
