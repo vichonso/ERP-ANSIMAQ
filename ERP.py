@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+from sqlalchemy import create_engine
+import time
 
-# Simuladores de bases de datos en memoria
-if 'generadores' not in st.session_state:
-    st.session_state.generadores = []
-if 'contratos' not in st.session_state:
-    st.session_state.contratos = []
+engine = create_engine('postgresql://postgres:pc-database@localhost:5432/ansimaq')  # Simulador de base de datos en memoria
+
 
 st.set_page_config(page_title="ERP Generadores", layout="wide")
 
