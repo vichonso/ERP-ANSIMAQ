@@ -46,7 +46,10 @@ def cargar_clientes():
 if menu == "Lista de Generadores":
     st.subheader("📦 Lista de Generadores")
     df = cargar_generadores()
-    columnas_visibles = ["id_generador", "codigo_interno", "nombre_modelo", "marca", "voltamperio", "estado"]
+    # Mapea el estado numérico a texto
+    estados_map = {1: "Disponible", 2: "En arriendo", 3: "En reparación", 4: "Averiado"}
+    df["estado_texto"] = df["estado"].map(estados_map)
+    columnas_visibles = ["id_generador", "codigo_interno", "nombre_modelo", "marca", "voltamperio", "estado_texto"]
     st.dataframe(df[columnas_visibles])
 
 # 2. Lista de Contratos
@@ -79,40 +82,71 @@ elif menu == "Añadir Generador":
 elif menu == "Editar Generador":
     st.subheader("🛠 Editar Generador")
     df = cargar_generadores()
-    if df.empty or "id_generador" not in df.columns:
+    if df.empty or "codigo_interno" not in df.columns or df["codigo_interno"].dropna().empty:
         st.warning("No hay generadores disponibles para editar.")
     else:
-        opciones_generador = [int(x) for x in df["id_generador"].tolist() if pd.notnull(x)]
-        if not opciones_generador:
-            st.warning("No hay generadores disponibles para editar.")
-        else:
-            generador = st.selectbox("Selecciona un generador", opciones_generador)
-            try:
-                generador = int(generador)
-                g = df[df["id_generador"] == generador].iloc[0]
-            except Exception:
-                st.error("Error al seleccionar generador. Por favor, recargue la página.")
-                st.stop()
+        codigos = df["codigo_interno"].drop_duplicates().dropna().astype(str).tolist()
+        codigo_sel = st.selectbox("Selecciona un generador (por código interno)", codigos)
+        g = df[df["codigo_interno"] == codigo_sel].iloc[0]
+        codigo_interno_original = g["codigo_interno"]  # Guarda el original
 
-            with st.form("editar_generador"):
-                codigo_interno = st.text_input("Código interno", value=g["codigo_interno"])
-                nombre = st.text_input("Nombre del modelo", value=g["nombre_modelo"])
-                marca = st.text_input("Marca", value=g["marca"])
-                voltamperio = st.number_input("Volt-Amperios", min_value=0, value=int(g["voltamperio"]))
-                estado = st.selectbox(
-                    "Estado",
-                    [1, 2, 3, 4],
-                    index=int(g["estado"])-1,
-                    format_func=lambda x: ["Disponible", "En arriendo", "En reparación", "Averiado"][x-1]
+        # Manejo de estado para confirmación de borrado
+        if "confirmar_borrado" not in st.session_state:
+            st.session_state.confirmar_borrado = False
+
+        with st.form("editar_generador"):
+            codigo_interno = st.text_input("Código interno", value=g["codigo_interno"])
+            nombre = st.text_input("Nombre del modelo", value=g["nombre_modelo"])
+            marca = st.text_input("Marca", value=g["marca"])
+            voltamperio = st.number_input("Volt-Amperios", min_value=0, value=int(g["voltamperio"]))
+            estado = st.selectbox(
+                "Estado",
+                [1, 2, 3, 4],
+                index=int(g["estado"])-1,
+                format_func=lambda x: ["Disponible", "En arriendo", "En reparación", "Averiado"][x-1]
+            )
+            col1, col2 = st.columns(2)
+            actualizar = col1.form_submit_button("Actualizar")
+            eliminar = col2.form_submit_button("Eliminar")
+
+        if actualizar:
+            with engine.begin() as conn:
+                result = conn.execute(
+                    text("UPDATE generadores SET codigo_interno=:ci, nombre_modelo=:nm, marca=:ma, voltamperio=:va, estado=:es WHERE codigo_interno=:ci_orig"),
+                    {"ci": codigo_interno, "nm": nombre, "ma": marca, "va": voltamperio, "es": estado, "ci_orig": codigo_interno_original}
                 )
-                actualizar = st.form_submit_button("Actualizar")
-                if actualizar:
-                    with engine.begin() as conn:
-                        conn.execute(
-                            "UPDATE generadores SET codigo_interno=%s, nombre_modelo=%s, marca=%s, voltamperio=%s, estado=%s WHERE id_generador=%s",
-                            (codigo_interno, nombre, marca, voltamperio, estado, generador)
-                        )
-                    st.success("✅ Generador actualizado")
+            st.info(f"Filas modificadas: {result.rowcount} (ci_orig={codigo_interno_original})")
+            if result.rowcount > 0:
+                st.success("✅ Generador actualizado")
+            else:
+                st.warning("No se encontró el generador para actualizar. ¿Cambiaste el código interno antes de guardar?")
+
+        # Si se presiona Eliminar, activar el estado de confirmación
+        if eliminar:
+            st.session_state.confirmar_borrado = True
+
+        # Mostrar el flujo de confirmación de borrado solo si está activado
+        if st.session_state.confirmar_borrado:
+            st.warning(
+                "¿Estás seguro que deseas eliminar este generador? Esta acción no se puede deshacer.",
+                icon="⚠️"
+            )
+            confirmar_eliminar = st.checkbox("Confirmo que deseo eliminar este generador", key="checkbox_confirmar_borrado")
+            confirmar_click = st.button("Confirmar eliminación", key="boton_confirmar_borrado")
+            if confirmar_eliminar and confirmar_click:
+                with engine.begin() as conn:
+                    result = conn.execute(
+                        text("DELETE FROM generadores WHERE codigo_interno=:ci"),
+                        {"ci": codigo_interno_original}
+                    )
+                if result.rowcount > 0:
+                    st.success("🗑️ Generador eliminado correctamente")
+                else:
+                    st.warning("No se encontró el generador para eliminar.")
+                # Limpiar el estado de confirmación después de eliminar
+                st.session_state.confirmar_borrado = False
+            elif confirmar_click and not confirmar_eliminar:
+                st.warning("Debes marcar la casilla de confirmación para eliminar.")
 
 # 5. Añadir Contrato
 elif menu == "Añadir Contrato":
@@ -149,6 +183,7 @@ elif menu == "Añadir Contrato":
 
 # 6. Editar Contrato (simple)
 elif menu == "Editar Contrato":
+
     st.subheader("🛠 Editar Contrato")
     contratos = cargar_contratos()
     opciones_contratos = [int(x) for x in contratos["id_contrato"].tolist() if pd.notnull(x)]
@@ -164,14 +199,35 @@ elif menu == "Editar Contrato":
             costo_envio = st.number_input("Costo de envío", min_value=0, value=int(c["costo_envio"]))
             costo_arreglo = st.number_input("Costo de arreglo", min_value=0, value=int(c["costo_arreglo"]))
             costo_mantencion = st.number_input("Costo de mantención", min_value=0, value=int(c["costo_mantencion"]))
-            actualizar = st.form_submit_button("Actualizar contrato")
-            if actualizar:
+            col1, col2 = st.columns(2)
+            actualizar = col1.form_submit_button("Actualizar contrato")
+            eliminar = col2.form_submit_button("Eliminar contrato")
+
+        if actualizar:
+            with engine.begin() as conn:
+                conn.execute(
+                    "UPDATE contrato SET costo_arriendo=%s, costo_envio=%s, costo_arreglo=%s, costo_mantencion=%s WHERE id_contrato=%s",
+                    (costo_arriendo, costo_envio, costo_arreglo, costo_mantencion, contrato_id)
+                )
+            st.success("✅ Contrato actualizado")
+
+        if eliminar:
+            st.warning(
+                "¿Estás seguro que deseas eliminar este contrato? Esta acción no se puede deshacer.",
+                icon="⚠️"
+            )
+            confirmar_eliminar_contrato = st.checkbox("Confirmo que deseo eliminar este contrato")
+            confirmar_click_contrato = st.button("Confirmar eliminación de contrato")
+            if confirmar_eliminar_contrato and confirmar_click_contrato:
                 with engine.begin() as conn:
-                    conn.execute(
-                        "UPDATE contrato SET costo_arriendo=%s, costo_envio=%s, costo_arreglo=%s, costo_mantencion=%s WHERE id_contrato=%s",
-                        (costo_arriendo, costo_envio, costo_arreglo, costo_mantencion, contrato_id)
+                    result = conn.execute(
+                        text("DELETE FROM contrato WHERE id_contrato=:idc"),
+                        {"idc": contrato_id}
                     )
-                st.success("✅ Contrato actualizado")
+                if result.rowcount > 0:
+                    st.success("🗑️ Contrato eliminado correctamente")
+                else:
+                    st.warning("No se encontró el contrato para eliminar.")
 
 # 7. Agregar Arreglo o Mantención
 elif menu == "Agregar Arreglo o Mantención":
