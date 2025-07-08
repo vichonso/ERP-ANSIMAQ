@@ -12,7 +12,7 @@ st.title("⚙️ ERP de Generadores y Contratos")
 
 menu = st.sidebar.radio("Menú", [
     "Lista de Generadores", "Lista de Contratos", "Añadir Generador", "Editar Generador",
-    "Añadir Contrato", "Editar Contrato", "Agregar Arreglo o Mantención", "Análisis Financiero",
+    "Añadir Contrato", "Editar Contrato", "Agregar Arreglo o Mantención", "Ver/Editar Arreglos o Mantenciones", "Análisis Financiero",
     "Añadir Cliente", "Eliminar Cliente"
 ])
 
@@ -50,9 +50,10 @@ def cargar_generadores():
     df = pd.read_sql("SELECT * FROM generadores", engine)
     return forzar_int_puro(df, ["id_generador", "voltamperio", "estado"])
 
+# Incluye id_generador en contratos
 def cargar_contratos():
     df = pd.read_sql("SELECT * FROM contrato", engine)
-    return forzar_int_puro(df, ["id_contrato", "id_cliente", "costo_arriendo", "costo_envio", "costo_arreglo", "costo_mantencion"])
+    return forzar_int_puro(df, ["id_contrato", "id_cliente", "id_generador", "costo_arriendo", "costo_envio", "costo_arreglo", "costo_mantencion"])
 
 def cargar_arreglos():
     df = pd.read_sql("SELECT * FROM arreglos_y_mantenciones", engine)
@@ -164,71 +165,99 @@ elif menu == "Editar Generador":
             elif confirmar_click and not confirmar_eliminar:
                 st.warning("Debes marcar la casilla de confirmación para eliminar.")
 
+
 # 5. Añadir Contrato
 elif menu == "Añadir Contrato":
     st.subheader("➕ Añadir Contrato")
-    clientes = cargar_clientes()
-    opciones_clientes = [(row["id_cliente"], f"{row['nombre_empresa']} ({row['rut_empresa']})") for _, row in clientes.iterrows()]
+
+    # Selección entre cliente nuevo o existente
+    cliente_opcion = st.radio("¿El cliente ya está inscrito?", ["Seleccionar cliente existente", "Agregar nuevo cliente"], horizontal=True)
+
+    # Inicializar ID cliente
+    id_cliente = None
+
     generadores = cargar_generadores()
-    opciones_generadores = [int(x) for x in generadores["id_generador"].tolist()]
-    def safe_int(val):
-        try:
-            return int(val) if val is not None else 0
-        except Exception:
-            return 0
+    codigos = generadores["codigo_interno"].drop_duplicates().dropna().astype(str).tolist()
+    generadores_codigos = generadores.set_index("codigo_interno")
 
     with st.form("form_contrato"):
-        st.markdown("### Cliente")
-        cliente_opcion = st.radio("¿El cliente ya está inscrito?", ("Seleccionar existente", "Añadir nuevo"), horizontal=True)
-        if cliente_opcion == "Seleccionar existente" and opciones_clientes:
-            cliente_sel = st.selectbox("Cliente", opciones_clientes, format_func=lambda x: x[1])
-            id_cliente = cliente_sel[0]
-        else:
-            st.markdown("#### Datos del nuevo cliente")
+
+        if cliente_opcion == "Seleccionar cliente existente":
+            clientes = cargar_clientes()
+            if clientes.empty:
+                st.warning("No hay clientes registrados.")
+            else:
+                opciones_clientes = [(row["id_cliente"], f"{row['nombre_empresa']} ({row['rut_empresa']})") for _, row in clientes.iterrows()]
+                cliente_sel = st.selectbox("Cliente", opciones_clientes, format_func=lambda x: x[1])
+                id_cliente = cliente_sel[0]
+
+        elif cliente_opcion == "Agregar nuevo cliente":
+            st.markdown("### Datos del nuevo cliente")
             rut_empresa = st.text_input("RUT empresa")
             nombre_empresa = st.text_input("Nombre empresa")
             nombre_representante = st.text_input("Nombre representante")
             rut_representante = st.text_input("RUT representante")
             correo = st.text_input("Correo electrónico")
             telefono = st.text_input("Teléfono")
-            id_cliente = None  # Se insertará más abajo
 
         st.markdown("### Datos del Contrato")
+        # Selección de generador para el contrato
+        if not codigos:
+            st.warning("No hay generadores disponibles para asociar al contrato.")
+            st.stop()
+        codigo_sel = st.selectbox("Selecciona un generador (por código interno)", codigos)
+        id_generador = int(generadores_codigos.loc[codigo_sel]["id_generador"])
+
         fecha_inicio = st.date_input("Fecha inicio del contrato")
         fecha_termino = st.date_input("Fecha término del contrato")
         costo_arriendo = st.number_input("Costo de arriendo", min_value=0, value=0)
         costo_envio = st.number_input("Costo de envío", min_value=0, value=0)
         submit = st.form_submit_button("Guardar contrato")
+
         if submit:
-            # Limpiar RUT antes de guardar
-            rut_empresa_limpio = limpiar_rut(rut_empresa) if 'rut_empresa' in locals() else None
-            rut_representante_limpio = limpiar_rut(rut_representante) if 'rut_representante' in locals() else None
-            # Validar que los RUT sean numéricos tras limpiar
-            if (rut_empresa_limpio is not None and not str(rut_empresa_limpio).isdigit()) or (rut_representante_limpio is not None and not str(rut_representante_limpio).isdigit()):
-                st.error("❌ El RUT de la empresa y/o representante debe ser numérico (sin puntos ni guion). Corrige e intenta de nuevo.")
-            else:
-                with engine.begin() as conn:
-                    if cliente_opcion == "Seleccionar existente" and opciones_clientes:
-                        pass  # id_cliente ya está definido
-                    else:
-                        result_cliente = conn.execute(
-                            text("INSERT INTO clientes (rut_empresa, nombre_empresa, nombre_representante, rut_representante, correo, telefono) VALUES (:rut_empresa, :nombre_empresa, :nombre_representante, :rut_representante, :correo, :telefono) RETURNING id_cliente"),
-                            {
-                                "rut_empresa": rut_empresa_limpio,
-                                "nombre_empresa": nombre_empresa,
-                                "nombre_representante": nombre_representante,
-                                "rut_representante": rut_representante_limpio,
-                                "correo": correo,
-                                "telefono": telefono
-                            }
-                        )
-                        id_cliente = result_cliente.fetchone()[0]
-                    result = conn.execute(
-                        "INSERT INTO contrato (id_cliente, fecha_inicio_contrato, fecha_termino_contrato, costo_arriendo, costo_envio, costo_arreglo, costo_mantencion) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id_contrato",
-                        (id_cliente, fecha_inicio, fecha_termino, costo_arriendo, costo_envio, 0, 0)
+            with engine.begin() as conn:
+                if cliente_opcion == "Agregar nuevo cliente":
+                    # Validar y limpiar RUT
+                    rut_empresa_limpio = limpiar_rut(rut_empresa)
+                    rut_representante_limpio = limpiar_rut(rut_representante)
+                    # Validación básica de RUT numérico
+                    if not rut_empresa_limpio.isdigit() or not rut_representante_limpio.isdigit():
+                        st.error("❌ El RUT de empresa y representante debe ser numérico (sin guiones ni puntos).")
+                        st.stop()
+                    result_cliente = conn.execute(
+                        text("INSERT INTO clientes (rut_empresa, nombre_empresa, nombre_representante, rut_representante, correo, telefono) VALUES (:rut_empresa, :nombre_empresa, :nombre_representante, :rut_representante, :correo, :telefono) RETURNING id_cliente"),
+                        {
+                            "rut_empresa": rut_empresa_limpio,
+                            "nombre_empresa": nombre_empresa,
+                            "nombre_representante": nombre_representante,
+                            "rut_representante": rut_representante_limpio,
+                            "correo": correo,
+                            "telefono": telefono
+                        }
                     )
-                    id_contrato = result.fetchone()[0]
-                st.success("✅ Contrato guardado correctamente")
+                    id_cliente = result_cliente.fetchone()[0]
+                # Inserta el contrato (id_cliente ya definido en ambos casos)
+                result_contrato = conn.execute(
+                    text("INSERT INTO contrato (id_cliente, id_generador, fecha_inicio_contrato, fecha_termino_contrato, costo_arriendo, costo_envio, costo_arreglo, costo_mantencion) VALUES (:ic, :idg, :fic, :ftc, :ca, :ce, :car, :cm) RETURNING id_contrato"),
+                    {
+                        "ic": id_cliente,
+                        "idg": id_generador,
+                        "fic": fecha_inicio,
+                        "ftc": fecha_termino,
+                        "ca": costo_arriendo,
+                        "ce": costo_envio,
+                        "car": 0,
+                        "cm": 0
+                    }
+                )
+                id_contrato = result_contrato.fetchone()[0]
+                # Actualiza el estado del generador a "En arriendo" (2)
+                conn.execute(
+                    text("UPDATE generadores SET estado=2 WHERE id_generador=:idg"),
+                    {"idg": id_generador}
+                )
+            st.success("✅ Contrato guardado correctamente y generador marcado como 'En arriendo'")
+
 
 # 6. Editar Contrato (simple)
 elif menu == "Editar Contrato":
@@ -261,8 +290,14 @@ elif menu == "Editar Contrato":
         if actualizar:
             with engine.begin() as conn:
                 conn.execute(
-                    "UPDATE contrato SET costo_arriendo=%s, costo_envio=%s, costo_arreglo=%s, costo_mantencion=%s WHERE id_contrato=%s",
-                    (costo_arriendo, costo_envio, costo_arreglo, costo_mantencion, contrato_id)
+                    text("UPDATE contrato SET costo_arriendo=:ca, costo_envio=:ce, costo_arreglo=:car, costo_mantencion=:cm WHERE id_contrato=:idc"),
+                    {
+                        "ca": costo_arriendo,
+                        "ce": costo_envio,
+                        "car": costo_arreglo,
+                        "cm": costo_mantencion,
+                        "idc": contrato_id
+                    }
                 )
             st.success("✅ Contrato actualizado")
 
@@ -288,24 +323,94 @@ elif menu == "Editar Contrato":
 elif menu == "Agregar Arreglo o Mantención":
     st.subheader("🔧 Añadir Arreglo o Mantención")
     generadores = cargar_generadores()
-    opciones_generadores = [int(x) for x in generadores["id_generador"].tolist() if pd.notnull(x)]
-    if not opciones_generadores:
+    contratos = cargar_contratos()
+    codigos = generadores["codigo_interno"].drop_duplicates().dropna().astype(str).tolist()
+    generadores_codigos = generadores.set_index("codigo_interno")
+    if not codigos:
         st.warning("No hay generadores disponibles para registrar arreglos o mantenciones.")
     else:
         with st.form("form_arreglo"):
-            id_generador = st.selectbox("Generador", opciones_generadores)
+            codigo_sel = st.selectbox("Selecciona un generador (por código interno)", codigos)
+            id_generador = int(generadores_codigos.loc[codigo_sel]["id_generador"])
             fecha_inicio = st.date_input("Fecha inicio del arreglo/mantención")
             fecha_termino = st.date_input("Fecha término del arreglo/mantención")
             costo = st.number_input("Costo", min_value=0)
             tipo = st.selectbox("Tipo", [1, 2], format_func=lambda x: "Arreglo" if x == 1 else "Mantención")
             submit = st.form_submit_button("Guardar")
             if submit:
+                if "id_generador" in contratos.columns:
+                    contratos_generador = contratos[contratos["id_generador"] == id_generador]
+                else:
+                    contratos_generador = pd.DataFrame()
+                contratos_afectados = []
+                for _, row in contratos_generador.iterrows():
+                    if row["fecha_inicio_contrato"] <= fecha_inicio <= row["fecha_termino_contrato"]:
+                        contratos_afectados.append(row["id_contrato"])
                 with engine.begin() as conn:
                     conn.execute(
-                        "INSERT INTO arreglos_y_mantenciones (id_generador, fecha_inicio_arreglo, fecha_termino_arreglo, costo, tipo) VALUES (%s, %s, %s, %s, %s)",
-                        (id_generador, fecha_inicio, fecha_termino, costo, tipo)
+                        text("INSERT INTO arreglos_y_mantenciones (id_generador, fecha_inicio_arreglo, fecha_termino_arreglo, costo, tipo) VALUES (:idg, :fi, :ft, :c, :t)"),
+                        {"idg": id_generador, "fi": fecha_inicio, "ft": fecha_termino, "c": costo, "t": tipo}
                     )
-                st.success("✅ Registro guardado")
+                    for id_contrato in contratos_afectados:
+                        if tipo == 1:
+                            conn.execute(
+                                text("UPDATE contrato SET costo_arreglo = costo_arreglo + :c WHERE id_contrato = :idc"),
+                                {"c": costo, "idc": id_contrato}
+                            )
+                        elif tipo == 2:
+                            conn.execute(
+                                text("UPDATE contrato SET costo_mantencion = costo_mantencion + :c WHERE id_contrato = :idc"),
+                                {"c": costo, "idc": id_contrato}
+                            )
+                if contratos_afectados:
+                    st.success(f"✅ Registro guardado y costo sumado a contratos: {', '.join(str(x) for x in contratos_afectados)}")
+                else:
+                    st.success("✅ Registro guardado (sin contrato asociado en el periodo)")
+
+# 7b. Visualizar y Editar Arreglos/Mantenciones
+elif menu == "Ver/Editar Arreglos o Mantenciones":
+    st.subheader("🔍 Ver, Editar o Eliminar Arreglos/Mantenciones")
+    arreglos = cargar_arreglos()
+    generadores = cargar_generadores()
+    if arreglos.empty:
+        st.info("No hay arreglos o mantenciones registrados.")
+    else:
+        generadores_codigos = generadores.set_index("codigo_interno")
+        codigos = generadores["codigo_interno"].drop_duplicates().dropna().astype(str).tolist()
+        codigo_sel = st.selectbox("Selecciona un generador (por código interno)", codigos)
+        if codigo_sel:
+            id_generador_sel = generadores_codigos.loc[codigo_sel]["id_generador"]
+            arreglos_gen = arreglos[arreglos["id_generador"] == id_generador_sel]
+            df_show = arreglos_gen.copy()
+            df_show = df_show.merge(generadores[["id_generador", "codigo_interno"]], on="id_generador", how="left")
+            st.dataframe(df_show)
+            opciones_arreglos = [(int(row["id_generador"]), row["fecha_inicio_arreglo"]) for _, row in arreglos_gen.iterrows()]
+            st.markdown("### Editar o Eliminar")
+            selected = st.selectbox("Selecciona un registro", opciones_arreglos, format_func=lambda x: f"Generador {x[0]} - {x[1]}")
+            if selected:
+                row = arreglos_gen[(arreglos_gen["id_generador"] == selected[0]) & (arreglos_gen["fecha_inicio_arreglo"] == selected[1])].iloc[0]
+                with st.form("editar_arreglo"):
+                    nuevo_costo = st.number_input("Costo", min_value=0, value=int(row["costo"]))
+                    nuevo_tipo = st.selectbox("Tipo", [1, 2], index=int(row["tipo"])-1, format_func=lambda x: "Arreglo" if x == 1 else "Mantención")
+                    nueva_fecha_inicio = st.date_input("Fecha inicio", value=row["fecha_inicio_arreglo"])
+                    nueva_fecha_termino = st.date_input("Fecha término", value=row["fecha_termino_arreglo"])
+                    col1, col2 = st.columns(2)
+                    actualizar = col1.form_submit_button("Actualizar")
+                    eliminar = col2.form_submit_button("Eliminar")
+                if actualizar:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            text("UPDATE arreglos_y_mantenciones SET costo=:c, tipo=:t, fecha_inicio_arreglo=:fi, fecha_termino_arreglo=:ft WHERE id_generador=:idg AND fecha_inicio_arreglo=:fi_orig"),
+                            {"c": nuevo_costo, "t": nuevo_tipo, "fi": nueva_fecha_inicio, "ft": nueva_fecha_termino, "idg": selected[0], "fi_orig": selected[1]}
+                        )
+                    st.success("✅ Registro actualizado")
+                if eliminar:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            text("DELETE FROM arreglos_y_mantenciones WHERE id_generador=:idg AND fecha_inicio_arreglo=:fi"),
+                            {"idg": selected[0], "fi": selected[1]}
+                        )
+                    st.success("🗑️ Registro eliminado")
 # 8. Añadir Cliente
 elif menu == "Añadir Cliente":
     st.subheader("➕ Añadir Cliente")
