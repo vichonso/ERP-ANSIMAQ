@@ -8,11 +8,11 @@ CREATE TABLE equipos (
 
 -- Crear tabla Clientes
 CREATE TABLE clientes (
-    rut_empresa INTEGER PRIMARY KEY, -- RUT de la empresa
+    rut_empresa VARCHAR(11) PRIMARY KEY, -- RUT de la empresa
     nombre_empresa VARCHAR(100), -- Nombre de la empresa
     obra VARCHAR(100), -- Nombre de la obra o proyecto
     nombre_representante VARCHAR(100), -- Nombre del representante de la empresa
-    rut_representante INTEGER, -- RUT del representante
+    rut_representante VARCHAR(11), -- RUT del representante
     correo VARCHAR(100), -- Correo electrónico de contacto
     telefono INTEGER -- Teléfono de contacto
 );
@@ -20,7 +20,7 @@ CREATE TABLE clientes (
 -- Crear tabla Contrato
 CREATE TABLE contrato (
     folio INTEGER PRIMARY KEY, -- Folio del contrato
-    rut_empresa INTEGER REFERENCES clientes(rut_empresa) ON DELETE CASCADE, -- RUT de la empresa contratante
+    rut_empresa VARCHAR(11) REFERENCES clientes(rut_empresa) ON DELETE CASCADE, -- RUT de la empresa contratante
     precio_mensual INTEGER, -- Precio mensual del arriendo
     horas_contrtadas INTEGER, -- Horas contratadas del equipo
     fecha_inicio_contrato DATE, -- Fecha de inicio del contrato
@@ -45,7 +45,7 @@ CREATE TABLE cobros (
     id_historial SERIAL REFERENCES historial_contrato(id_historial) ON DELETE CASCADE, -- Referencia al historial de contrato
     numero_vigente VARCHAR(100) REFERENCES equipos(numero_vigente) ON DELETE CASCADE, -- Referencia al equipo arrendado
     folio INTEGER REFERENCES contrato(folio) ON DELETE CASCADE, -- Referencia al contrato asociado
-	fecha_pago DATE, -- Fecha del pago del cobro
+    fecha_pago DATE, -- Fecha del pago del cobro
     cobro INTEGER, -- Monto del cobro (precio_mensual + if es primer mes(precio_envio) + (horas_extra * costo_hora_extra)-egreso_arriendo)
     horas_extra INTEGER, -- Horas extra de uso del equipo 
     costo_hora_extra INTEGER, -- Costo por hora extra
@@ -55,4 +55,5 @@ CREATE TABLE cobros (
     mes INTEGER, -- Mes del cobro
     anio INTEGER -- Año del cobro
 );
+
 
