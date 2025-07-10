@@ -43,7 +43,51 @@ menu = st.sidebar.radio("Menú", [
 ])
 
 if menu == "Inicio":
-    st.title("Ansimaq") # menú de inicio debe contener los generadores disponibles y pagos por realizar
+     st.title("💼 Bienvenido a Ansimaq")
+
+    st.markdown("## 🛠️ Resumen general")
+
+    # --- Cargar datos
+    df_equipos = cargar_equipos()
+    df_cobros = cargar_cobros()
+
+    # --- Generadores disponibles
+    generadores_disponibles = df_equipos[df_equipos["estado"] == 1]  # Estado 1 = disponible
+    total_generadores = len(generadores_disponibles)
+
+    # --- Pagos pendientes (ajusta según tu tabla)
+    if "pagado" in df_cobros.columns:
+        pagos_pendientes = df_cobros[df_cobros["pagado"] == False]
+    else:
+        pagos_pendientes = df_cobros  # Si no hay campo, muestra todos
+
+    total_pagos = len(pagos_pendientes)
+    monto_total = pagos_pendientes["monto"].sum() if "monto" in pagos_pendientes.columns else 0
+
+    # --- Mostrar métricas principales
+    col1, col2 = st.columns(2)
+    col1.metric("🔋 Generadores disponibles", total_generadores)
+    col2.metric("💰 Pagos pendientes", f"{total_pagos} pagos - ${monto_total:,.0f}")
+
+    st.markdown("---")
+    st.subheader("🔋 Detalle de generadores disponibles")
+    if total_generadores > 0:
+        st.dataframe(
+            generadores_disponibles[["numero_vigente", "nombre_modelo", "estado"]],
+            use_container_width=True
+        )
+    else:
+        st.info("No hay generadores disponibles en este momento.")
+
+    st.markdown("---")
+    st.subheader("📄 Detalle de pagos pendientes")
+    if total_pagos > 0:
+        st.dataframe(
+            pagos_pendientes[["cliente", "monto", "fecha_limite"]],
+            use_container_width=True
+        )
+    else:
+        st.success("No hay pagos pendientes. ¡Todo está al día!")
 
 
 elif menu == "Equipos": 
