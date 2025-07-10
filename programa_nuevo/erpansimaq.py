@@ -25,15 +25,32 @@ def cargar_clientes():
     return df
 
 def cargar_contratos():
-    df = pd.read_sql("SELECT * FROM contrato", engine)
+    query = """
+        SELECT contrato.*, clientes.nombre_empresa, clientes.nombre_representante, clientes.rut_representante, clientes.obra, clientes.correo, clientes.telefono
+        FROM contrato
+        JOIN clientes ON contrato.rut_empresa = clientes.rut_empresa
+    """
+    df = pd.read_sql(query, engine)
     return df
 
 def cargar_cobros():
-    df = pd.read_sql("SELECT * FROM cobros", engine)
+    query = """
+        SELECT cobros.*, contrato.folio, contrato.rut_empresa, clientes.nombre_empresa
+        FROM cobros
+        JOIN contrato ON cobros.folio = contrato.folio
+        JOIN clientes ON contrato.rut_empresa = clientes.rut_empresa
+    """
+    df = pd.read_sql(query, engine)
     return df
 
 def cargar_historial_contrato():
-    df = pd.read_sql("SELECT * FROM historial_contrato", engine)
+    query = """
+        SELECT historial_contrato.*, contrato.folio, contrato.rut_empresa, clientes.nombre_empresa
+        FROM historial_contrato
+        JOIN contrato ON historial_contrato.folio = contrato.folio
+        JOIN clientes ON contrato.rut_empresa = clientes.rut_empresa
+    """
+    df = pd.read_sql(query, engine)
     return df
 
 
@@ -313,4 +330,117 @@ elif menu == "Clientes":
                 elif not confirmacion:
                     st.error("¿Estas seguro de que deseas eliminar este cliente?")
 
-#elif menu == "Contratos":
+elif menu == "Contratos":
+    st.title("Contratos")
+    opcion = st.radio("Seleccione una opción", ["Ver Contratos", "Cobro por contrato", "Agregar Contrato", "Editar o Eliminar Contrato"])
+    if opcion == "Ver Contratos":
+        st.subheader("Lista de Contratos")
+        df_contratos = cargar_contratos()
+        
+        busqueda = st.text_input(label="Nombre de empresa o RUT, Nombre del representante")
+        if busqueda:
+            df_contratos = df_contratos[
+                df_contratos["rut_empresa"].str.contains(busqueda, case=False, na=False) |
+                df_contratos["nombre_representante"].str.contains(busqueda, case=False, na=False) |
+                df_contratos["nombre_empresa"].str.contains(busqueda, case=False, na=False) |
+                df_contratos["rut_representante"].str.contains(busqueda, case=False, na=False)
+            ]
+        st.dataframe(df_contratos)
+    
+    elif opcion == "Cobro por contrato":
+        st.subheader("Cobro por contrato")
+        df_contratos = cargar_contratos()
+        df_cobros = cargar_cobros()
+
+        # REVISAR SI SE UTILIZA
+        df_historial = cargar_historial_contrato()
+
+        rut_empresa = st.selectbox("Seleccione el RUT de la empresa", df_contratos["rut_empresa"].unique())
+        contrato_seleccionado = df_contratos[df_contratos["rut_empresa"] == rut_empresa].iloc[0]
+
+        with st.form("form_cobro_contrato"):
+            st.write(f"Contrato seleccionado: {contrato_seleccionado['folio']}")
+            st.write(f"Rut de la empresa: {contrato_seleccionado['rut_empresa']}")
+            st.write(f"Nombre de la empresa: {contrato_seleccionado['nombre_empresa']}")
+
+    elif opcion == "Agregar Contrato":
+        st.subheader("Agregar Nuevo Contrato")
+        df_contratos = cargar_contratos()
+        df_clientes = cargar_clientes()
+        df_equipos = cargar_equipos()
+
+        with st.form("form_agregar_contrato"):
+            rut_empresa = st.selectbox("Seleccione el RUT de la empresa", df_clientes["rut_empresa"].unique())
+            cliente_seleccionado = df_clientes[df_clientes["rut_empresa"] == rut_empresa].iloc[0]
+            st.write(f"Nombre de la empresa: {cliente_seleccionado['nombre_empresa']}")
+            st.write(f"Rut del representante: {cliente_seleccionado['rut_representante']}")
+            st.write(f"Nombre del representante: {cliente_seleccionado['nombre_representante']}")
+
+            fecha_inicio = st.date_input("Fecha de inicio del contrato")
+            indefinido = st.checkbox("Contrato a plazo indefinido")
+            if indefinido:
+                fecha_termino = pd.to_datetime("2099-12-31")
+                st.info("Fecha de término establecida como 31/12/2099. Puede ser modificada al termino del contrato.")
+            else:
+                fecha_termino = st.date_input("Fecha de término del contrato")
+            # Selección de equipo inicial
+            equipo_inicial = st.selectbox("Seleccione el equipo con el que inicia el contrato", df_equipos["numero_vigente"].unique())
+            horometro = st.number_input("Horómetro inicial (horas)", min_value=0, step=1)
+            horas_contratadas = st.number_input("Horas contratadas", min_value=0, step=1)
+            precio_mensual = st.number_input("Precio mensual", min_value=0, step=1000)
+            precio_envio = st.number_input("Precio de envío", min_value=0, step=1000)
+
+            # Generar folio automático: AAAA00000
+            from datetime import date
+            hoy = date.today()
+            anio = hoy.year
+            folio_prefijo = f"{anio}"
+            # Buscar el último folio del año actual
+            df_folios = df_contratos[df_contratos['folio'].astype(str).str.startswith(folio_prefijo)] if 'folio' in df_contratos.columns else pd.DataFrame()
+            if not df_folios.empty:
+                ultimos = df_folios['folio'].astype(str).str[-5:].astype(int)
+                siguiente = ultimos.max() + 1
+            else:
+                siguiente = 0
+            folio_generado = f"{folio_prefijo}{siguiente:05d}"
+            st.info(f"Folio generado automáticamente: {folio_generado}")
+
+            submit_button = st.form_submit_button("Agregar Contrato")
+
+            if submit_button:
+                # ...validaciones y lógica de inserción aquí...
+                with engine.begin() as conn:
+                    # Insertar contrato
+                    conn.execute(text("""
+                        INSERT INTO contrato (folio, rut_empresa, precio_mensual, horas_contrtadas, fecha_inicio_contrato, fecha_termino_contrato, precio_envio)
+                        VALUES (:folio, :rut_empresa, :precio_mensual, :horas_contrtadas, :fecha_inicio_contrato, :fecha_termino_contrato, :precio_envio)
+                    """), {
+                        "folio": int(folio_generado),
+                        "rut_empresa": rut_empresa,
+                        "precio_mensual": precio_mensual,
+                        "horas_contrtadas": horas_contratadas,
+                        "fecha_inicio_contrato": fecha_inicio,
+                        "fecha_termino_contrato": fecha_termino,
+                        "precio_envio": precio_envio
+                    })
+                    # Insertar historial_contrato inicial
+                    conn.execute(text("""
+                        INSERT INTO historial_contrato (folio, numero_vigente, tipo_servicio, fecha_servicio, horometro)
+                        VALUES (:folio, :numero_vigente, :tipo_servicio, :fecha_servicio, :horometro)
+                    """), {
+                        "folio": int(folio_generado),
+                        "numero_vigente": equipo_inicial,
+                        "tipo_servicio": "Entrega en obra",
+                        "fecha_servicio": fecha_inicio,
+                        "horometro": horometro
+                    })
+                st.success(f"✅ Contrato agregado exitosamente con folio {folio_generado} y registro inicial en historial de contrato.")
+
+    elif opcion == "Editar o Eliminar Contrato":
+        st.subheader("Editar o Eliminar Contrato")
+        df_contratos = cargar_contratos()
+        folio_seleccionado = st.selectbox("Seleccione el folio del contrato a modificar", df_contratos["folio"].unique())
+        contrato_seleccionado = df_contratos[df_contratos["folio"] == folio_seleccionado].iloc[0]
+
+        with st.form("form_editar_contrato"):
+            rut_empresa
