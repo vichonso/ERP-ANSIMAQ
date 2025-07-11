@@ -869,3 +869,14 @@ elif menu == "Historial de Contratos":
                                     UPDATE equipos SET estado = 1 WHERE numero_vigente = :numero_vigente
                                 """), {"numero_vigente": numero_vigente})
                         st.warning("✅ Registro del historial eliminado exitosamente.")
+    
+# elif menu == "Contratos": (hay que hacer todo el menu de cobros) TODOS ESTOS COBROS SON POR EL CONTRATO (FOLIO)
+# estos cobros se identifican como pago del contrato de forma mensual ya que se guarda el cobro INTEGER en la tabla cobros
+
+#INFO SOBRE TABLA COBROS:
+# EN HISTORIAL SE UTILIZA LA TABLA COBROS PARA GUARDAR LOS EGRESOS DEL EQUIPO LO QUE LOS DATOS GUARDADOS EN EL HISTORIAL DE EQUIPOS QUE SONDE TIPO MANTENCION O REPARACION GENERAN LA CREACION DE DATOS EN COBROS PERO SIN LLENAR:
+# COBRO, HORAS_EXTRA, COSTO_HORAS_EXTRA, RENTABILIDAD. 
+#POR LO TANTO HAY QUE CONDICIONAR QUE LOS COBROS QUE IMPORTAN AQUI TIENEN DATOS EN LAS CASILLAS MENCIONADAS ANTERIORMENTE. Y NO SE DEBE GUARDAR UN id_historial EN LA TABLA COBROS PARA ESTE TIPO DE COBROS 
+
+# debe contener - añadir cobro, editar cobro, eliminar cobro, ver cobros, ver cobros por folio, ver cobros por mes, ver cobros por estado (1=pendiente, 2=pagado)
+
