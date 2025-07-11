@@ -576,6 +576,296 @@ elif menu == "Contratos":
 
 elif menu == "Historial de Contratos":
     st.title("Historial de Contratos")
-    df_historial = cargar_historial_contrato()
+    opcion = st.radio("Seleccione una opción", ["Ver Historial", "Agregar Registro al Historial", "Editar o Eliminar Registro del Historial"])
+
+    if opcion == "Ver Historial":
+        st.subheader("Historial de Contratos")
+        df_historial = cargar_historial_contrato()
+        # Eliminar columnas duplicadas conservando la primera aparición
+        df_historial = df_historial.loc[:, ~df_historial.columns.duplicated()]
+        # Obtener todos los folios únicos de contratos presentes en el historial de forma robusta
+        if "folio" in df_historial.columns and not df_historial.empty:
+            folio_col = df_historial["folio"]
+            if isinstance(folio_col, pd.DataFrame):
+                folio_col = folio_col.iloc[:, 0]
+            folios_disponibles = folio_col.drop_duplicates().tolist()
+        else:
+            folios_disponibles = []
+        if folios_disponibles:
+            folio_seleccionado = st.selectbox("Seleccione el folio de contrato para ver sus servicios", folios_disponibles)
+            # Filtrar todos los servicios asociados a ese folio
+            servicios_folio = df_historial[df_historial["folio"] == folio_seleccionado].reset_index(drop=True)
+            if not servicios_folio.empty:
+                st.dataframe(servicios_folio, use_container_width=True)
+            else:
+                st.warning("No hay servicios registrados para este folio de contrato.")
+        else:
+            st.info("No hay historial de contratos registrado.")
+
+    elif opcion == "Agregar Registro al Historial":
+        st.subheader("Agregar Registro al Historial de Contrato")
+        df_contratos = cargar_contratos()
+        df_equipos = cargar_equipos()
+        df_historial = cargar_historial_contrato()
+
+        if "folio" in df_contratos.columns and not df_contratos.empty:
+            folios_disponibles = df_contratos["folio"].astype(str).tolist()
+        else:
+            folios_disponibles = []
+        if folios_disponibles:
+            folio_seleccionado = st.selectbox("Seleccione el folio de contrato al que desea agregar un registro", folios_disponibles)
+            contrato_seleccionado = df_contratos[df_contratos["folio"] == int(folio_seleccionado)].iloc[0]
+            st.write(f"Contrato seleccionado: Folio {contrato_seleccionado['folio']}, Empresa: {contrato_seleccionado['rut_empresa']}")
+
+            # Eliminar columnas duplicadas antes de filtrar para evitar errores de pandas
+            df_historial = df_historial.loc[:, ~df_historial.columns.duplicated()]
+
+            # Obtener el equipo actualmente asignado al contrato (último en historial para ese folio)
+            historial_folio = df_historial[df_historial["folio"] == int(folio_seleccionado)]
+            if not historial_folio.empty:
+                equipo_actual = historial_folio.sort_values("id_historial").iloc[-1]["numero_vigente"]
+            else:
+                equipo_actual = None
+            # Equipos disponibles (estado == 1)
+            equipos_disponibles = df_equipos[df_equipos["estado"] == 1]["numero_vigente"].tolist()
+            # Incluir el equipo actual si no está en la lista
+            if equipo_actual and equipo_actual not in equipos_disponibles:
+                equipos_disponibles.append(equipo_actual)
+
+            with st.form("form_agregar_historial"):
+                numero_vigente = st.selectbox("Seleccione el número vigente del equipo", equipos_disponibles, index=equipos_disponibles.index(equipo_actual) if equipo_actual in equipos_disponibles else 0)
+                tipo_servicio = st.selectbox("Seleccione el tipo de servicio", ["Mantenimiento", "Reparación", "Cambio del equipo", "Entrega en obra", "Otro"])
+                fecha_servicio = st.date_input("Fecha del servicio")
+                horometro = st.number_input("Horómetro al momento del servicio", min_value=0, step=1, value=0)
+
+                st.text("Si el tipo de servicio es Mantenimiento o Reparación, se agregará el costo del servicio.")
+                egreso_equipo = st.number_input("Costo del servicio (egreso)", min_value=0, step=1000, value=0)
+
+
+                submit_button = st.form_submit_button("Agregar Registro al Historial")
+
+                if submit_button:
+                    # Si el horómetro no se llena, se pone 0
+                    if horometro is None:
+                        horometro = 0
+                    from datetime import datetime
+                    with engine.begin() as conn:
+                        # Insertar en historial_contrato
+                        result = conn.execute(text("""
+                            INSERT INTO historial_contrato (folio, numero_vigente, tipo_servicio, fecha_servicio, horometro)
+                            VALUES (:folio, :numero_vigente, :tipo_servicio, :fecha_servicio, :horometro)
+                            RETURNING id_historial
+                        """), {
+                            "folio": int(folio_seleccionado),
+                            "numero_vigente": numero_vigente,
+                            "tipo_servicio": tipo_servicio,
+                            "fecha_servicio": fecha_servicio,
+                            "horometro": horometro
+                        })
+                        id_historial = result.fetchone()[0]
+
+                        # Si es mantención o reparación, crear cobro asociado y sumar egreso_equipo a egreso_arriendo
+                        if tipo_servicio in ["Mantenimiento", "Reparación"]:
+                            estado = 2  # Pagado
+                            fecha_pago = fecha_servicio
+                            mes = fecha_pago.month if hasattr(fecha_pago, 'month') else pd.to_datetime(fecha_pago).month
+                            anio = fecha_pago.year if hasattr(fecha_pago, 'year') else pd.to_datetime(fecha_pago).year
+                            # Sumar egreso_equipo a egreso_arriendo del contrato
+                            conn.execute(text("""
+                                UPDATE contrato SET egreso_arriendo = egreso_arriendo + :egreso_equipo WHERE folio = :folio
+                            """), {
+                                "egreso_equipo": egreso_equipo,
+                                "folio": int(folio_seleccionado)
+                            })
+                            conn.execute(text("""
+                                INSERT INTO cobros (id_historial, numero_vigente, folio, fecha_pago, egreso_equipo, estado, mes, anio)
+                                VALUES (:id_historial, :numero_vigente, :folio, :fecha_pago, :egreso_equipo, :estado, :mes, :anio)
+                            """), {
+                                "id_historial": id_historial,
+                                "numero_vigente": numero_vigente,
+                                "folio": int(folio_seleccionado),
+                                "fecha_pago": fecha_pago,
+                                "egreso_equipo": egreso_equipo,
+                                "estado": estado,
+                                "mes": mes,
+                                "anio": anio
+                            })
+                        # Actualizar el estado del equipo a "En arriendo" (estado 2)
+                        conn.execute(text("""UPDATE equipos
+                            SET estado = 2
+                            WHERE numero_vigente = :numero_vigente
+                        """), {
+                            "numero_vigente": numero_vigente
+                        })
+                        #actualizar el estado del equipo anterior a "Disponible" (estado 1)
+                        if equipo_actual and equipo_actual != numero_vigente:
+                            conn.execute(text("""
+                                UPDATE equipos
+                                SET estado = 1
+                                WHERE numero_vigente = :numero_vigente
+                            """), {
+                                "numero_vigente": equipo_actual
+                            })
+                    st.success("✅ Registro agregado al historial exitosamente.")
     
-    
+    elif opcion == "Editar o Eliminar Registro del Historial":
+        st.subheader("Editar o Eliminar Registro del Historial de Contrato")
+        df_historial = cargar_historial_contrato()
+        df_contratos = cargar_contratos()
+        df_equipos = cargar_equipos()
+
+        # Eliminar columnas duplicadas antes de cualquier filtrado para evitar errores de pandas
+        df_historial = df_historial.loc[:, ~df_historial.columns.duplicated()]
+
+        if "folio" in df_historial.columns and not df_historial.empty:
+            folio_col = df_historial["folio"]
+            # Si por error es DataFrame (por join), tomar la primera columna
+            if isinstance(folio_col, pd.DataFrame):
+                folio_col = folio_col.iloc[:, 0]
+            folios_disponibles = folio_col.drop_duplicates().astype(str).to_list()
+        else:
+            folios_disponibles = []
+
+        if folios_disponibles:
+            folio_seleccionado = st.selectbox("Seleccione el folio del contrato para editar un registro", folios_disponibles)
+            # Eliminar columnas duplicadas nuevamente por robustez antes de filtrar por folio
+            df_historial = df_historial.loc[:, ~df_historial.columns.duplicated()]
+            historial_folio = df_historial[df_historial["folio"] == int(folio_seleccionado)]
+            if not historial_folio.empty:
+                id_historial_seleccionado = st.selectbox("Seleccione el ID del registro a editar", historial_folio["id_historial"].tolist())
+                registro_seleccionado = historial_folio[historial_folio["id_historial"] == id_historial_seleccionado].iloc[0]
+
+                # Para el selectbox de equipos, mostrar disponibles y el actual
+                equipo_actual = registro_seleccionado["numero_vigente"]
+                equipos_disponibles = df_equipos[df_equipos["estado"] == 1]["numero_vigente"].tolist()
+                if equipo_actual not in equipos_disponibles:
+                    equipos_disponibles.append(equipo_actual)
+
+                with st.form("form_editar_historial"):
+                    numero_vigente = st.selectbox("Seleccione el número vigente del equipo", equipos_disponibles, index=equipos_disponibles.index(equipo_actual) if equipo_actual in equipos_disponibles else 0)
+                    tipos_servicio = ["Mantenimiento", "Reparación", "Cambio del equipo", "Entrega en obra", "Otro"]
+                    tipo_servicio = st.selectbox("Seleccione el tipo de servicio", tipos_servicio, index=tipos_servicio.index(registro_seleccionado["tipo_servicio"]) if registro_seleccionado["tipo_servicio"] in tipos_servicio else 0)
+                    fecha_servicio = st.date_input("Fecha del servicio", value=registro_seleccionado["fecha_servicio"])
+                    horometro = st.number_input("Horómetro al momento del servicio", min_value=0, step=1, value=registro_seleccionado["horometro"])
+                    # Mostrar el costo anterior si es mantenimiento o reparación
+                    # Buscar el cobro asociado a este id_historial para mostrar el valor anterior
+                    egreso_anterior = 0
+                    try:
+                        cobro_existente = pd.read_sql(
+                            text("SELECT egreso_equipo FROM cobros WHERE id_historial = :id_historial"),
+                            engine,
+                            params={"id_historial": id_historial_seleccionado}
+                        )
+                        if not cobro_existente.empty and not pd.isnull(cobro_existente["egreso_equipo"].iloc[0]):
+                            egreso_anterior = int(cobro_existente["egreso_equipo"].iloc[0])
+                    except Exception:
+                        egreso_anterior = int(registro_seleccionado.get("egreso_equipo", 0))
+                    egreso_equipo = st.number_input(
+                        "Costo del servicio (egreso)",
+                        min_value=0,
+                        step=1000,
+                        value=egreso_anterior
+                    )
+
+                    submit_button = st.form_submit_button("Guardar Cambios")
+                    eliminar_button = st.form_submit_button("Eliminar Registro")
+                    confirmacion = st.checkbox("CONFIRMAR ELIMINACIÓN")
+
+                if submit_button:
+                    # Actualizar historial_contrato
+                    with engine.begin() as conn:
+                        conn.execute(text("""
+                            UPDATE historial_contrato
+                            SET numero_vigente = :numero_vigente, tipo_servicio = :tipo_servicio, fecha_servicio = :fecha_servicio, horometro = :horometro
+                            WHERE id_historial = :id_historial
+                        """), {
+                            "numero_vigente": numero_vigente,
+                            "tipo_servicio": tipo_servicio,
+                            "fecha_servicio": fecha_servicio,
+                            "horometro": horometro,
+                            "id_historial": id_historial_seleccionado
+                        })
+                        # Si se cambió el equipo, marcar el nuevo como en arriendo (2) y el anterior como disponible (1)
+                        if numero_vigente != equipo_actual:
+                            conn.execute(text("""
+                                UPDATE equipos SET estado = 2 WHERE numero_vigente = :nuevo_equipo
+                            """), {"nuevo_equipo": numero_vigente})
+                            conn.execute(text("""
+                                UPDATE equipos SET estado = 1 WHERE numero_vigente = :antiguo_equipo
+                            """), {"antiguo_equipo": equipo_actual})
+                        # Si es mantención o reparación, actualizar o crear cobro
+                        if tipo_servicio in ["Mantenimiento", "Reparación"]:
+                            # Buscar si ya existe cobro para este id_historial
+                            cobro_existente = pd.read_sql(text("SELECT * FROM cobros WHERE id_historial = :id_historial"), engine, params={"id_historial": id_historial_seleccionado})
+                            estado = 2
+                            fecha_pago = fecha_servicio
+                            mes = fecha_pago.month if hasattr(fecha_pago, 'month') else pd.to_datetime(fecha_pago).month
+                            anio = fecha_pago.year if hasattr(fecha_pago, 'year') else pd.to_datetime(fecha_pago).year
+                            # Sumar egreso_equipo a egreso_arriendo del contrato
+                            conn.execute(text("""
+                                UPDATE contrato SET egreso_arriendo = egreso_arriendo + :egreso_equipo WHERE folio = :folio
+                            """), {
+                                "egreso_equipo": egreso_equipo,
+                                "folio": int(folio_seleccionado)
+                            })
+                            if not cobro_existente.empty:
+                                conn.execute(text("""
+                                    UPDATE cobros SET numero_vigente = :numero_vigente, folio = :folio, fecha_pago = :fecha_pago, egreso_equipo = :egreso_equipo, estado = :estado, mes = :mes, anio = :anio
+                                    WHERE id_historial = :id_historial
+                                """), {
+                                    "numero_vigente": numero_vigente,
+                                    "folio": int(folio_seleccionado),
+                                    "fecha_pago": fecha_pago,
+                                    "egreso_equipo": egreso_equipo,
+                                    "estado": estado,
+                                    "mes": mes,
+                                    "anio": anio,
+                                    "id_historial": id_historial_seleccionado
+                                })
+                            else:
+                                conn.execute(text("""
+                                    INSERT INTO cobros (id_historial, numero_vigente, folio, fecha_pago, egreso_equipo, estado, mes, anio)
+                                    VALUES (:id_historial, :numero_vigente, :folio, :fecha_pago, :egreso_equipo, :estado, :mes, :anio)
+                                """), {
+                                    "id_historial": id_historial_seleccionado,
+                                    "numero_vigente": numero_vigente,
+                                    "folio": int(folio_seleccionado),
+                                    "fecha_pago": fecha_pago,
+                                    "egreso_equipo": egreso_equipo,
+                                    "estado": estado,
+                                    "mes": mes,
+                                    "anio": anio
+                                })
+                        else:
+                            # Si el tipo de servicio ya no es mantención ni reparación, eliminar cobro asociado si existe
+                            conn.execute(text("DELETE FROM cobros WHERE id_historial = :id_historial"), {"id_historial": id_historial_seleccionado})
+                    st.success("✅ Registro del historial actualizado exitosamente.")
+                
+                if eliminar_button:
+                    if confirmacion:
+                        with engine.begin() as conn:
+                            # Revisar si el historial es de tipo 'Cambio del equipo'
+                            tipo_servicio_borrar = registro_seleccionado["tipo_servicio"]
+                            equipo_borrar = registro_seleccionado["numero_vigente"]
+                            folio_borrar = registro_seleccionado["folio"]
+                            equipo_anterior = None
+                            if tipo_servicio_borrar == "Cambio del equipo":
+                                # Buscar el historial anterior a este para el mismo folio
+                                prev_historial = historial_folio[historial_folio["id_historial"] < id_historial_seleccionado]
+                                if not prev_historial.empty:
+                                    equipo_anterior = prev_historial.sort_values("id_historial").iloc[-1]["numero_vigente"]
+                            # Eliminar el registro del historial
+                            conn.execute(text("DELETE FROM historial_contrato WHERE id_historial = :id_historial"), {"id_historial": id_historial_seleccionado})
+                            # Si había un cobro asociado, eliminarlo también
+                            conn.execute(text("DELETE FROM cobros WHERE id_historial = :id_historial"), {"id_historial": id_historial_seleccionado})
+                            # Lógica de estado de equipos según tipo de servicio
+                            if tipo_servicio_borrar == "Cambio del equipo" and equipo_anterior:
+                                # El equipo anterior vuelve a estar en arriendo, el borrado queda disponible
+                                conn.execute(text("UPDATE equipos SET estado = 2 WHERE numero_vigente = :numero_vigente"), {"numero_vigente": equipo_anterior})
+                                conn.execute(text("UPDATE equipos SET estado = 1 WHERE numero_vigente = :numero_vigente"), {"numero_vigente": equipo_borrar})
+                            else:
+                                # Actualizar el estado del equipo a "Disponible" (estado 1)
+                                conn.execute(text("""
+                                    UPDATE equipos SET estado = 1 WHERE numero_vigente = :numero_vigente
+                                """), {"numero_vigente": numero_vigente})
+                        st.warning("✅ Registro del historial eliminado exitosamente.")
