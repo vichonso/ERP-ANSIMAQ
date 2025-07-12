@@ -344,6 +344,7 @@ elif menu == "Clientes":
 elif menu == "Contratos":
     st.title("Contratos")
     opcion = st.radio("Seleccione una opción", ["Ver Contratos", "Agregar Contrato", "Editar o Eliminar Contrato"])
+
     if opcion == "Ver Contratos":
         st.subheader("Lista de Contratos")
         df_contratos = cargar_contratos()
@@ -865,8 +866,8 @@ elif menu == "Historial de Contratos":
                                     UPDATE equipos SET estado = 1 WHERE numero_vigente = :numero_vigente
                                 """), {"numero_vigente": numero_vigente})
                         st.warning("✅ Registro del historial eliminado exitosamente.")
-    
-# debe contener - añadir cobro, editar cobro, eliminar cobro, ver cobros, ver cobros por folio, ver cobros por mes, ver cobros por estado (1=pendiente, 2=pagado)
+
+
 
 elif menu == "Cobros":
     st.title("Cobros")
@@ -874,6 +875,26 @@ elif menu == "Cobros":
 
     if opcion == "Ver Cobros":
         st.subheader("Ver Cobros")
+        df_cobros = cargar_cobros()
+        df_contratos = cargar_contratos()
+        # Eliminar columnas duplicadas antes de mostrar
+        df_cobros = df_cobros.loc[:, ~df_cobros.columns.duplicated()]
+        # Filtrar para mostrar solo contratos donde egreso_equipo es nulo o cero (no mostrar contratos de mantenciones/reparaciones)
+        if "egreso_equipo" in df_cobros.columns:
+            df_cobros = df_cobros[(df_cobros["egreso_equipo"].isnull()) | (df_cobros["egreso_equipo"] == 0)]
+        # Selección de contrato (folio)
+        if "folio" in df_cobros.columns and not df_cobros.empty:
+            folios_disponibles = df_cobros["folio"].drop_duplicates().astype(str).tolist()
+        else:
+            folios_disponibles = []
+        if folios_disponibles:
+            folio_seleccionado = st.selectbox("Seleccione el folio del contrato para ver sus cobros", folios_disponibles)
+            cobros_folio = df_cobros[df_cobros["folio"] == int(folio_seleccionado)]
+            # Ocultar columna egreso_equipo si existe
+            columnas_a_mostrar = [col for col in cobros_folio.columns if col != "egreso_equipo"]
+            st.dataframe(cobros_folio[columnas_a_mostrar], use_container_width=True)
+        else:
+            st.info("No hay cobros registrados.")
         
     if opcion == "Agregar Cobro":
         st.subheader("Agregar Cobro")
@@ -969,7 +990,6 @@ elif menu == "Cobros":
                         })
                     st.success(f"✅ Cobro de ${int(monto_cobro):,.0f} agregado exitosamente.")
                             
-
     if opcion == "Editar o Eliminar Cobro":
         st.subheader("Editar o Eliminar Cobro")
         df_cobros = cargar_cobros()
