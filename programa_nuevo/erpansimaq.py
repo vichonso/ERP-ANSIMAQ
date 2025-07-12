@@ -868,7 +868,6 @@ elif menu == "Historial de Contratos":
                         st.warning("✅ Registro del historial eliminado exitosamente.")
 
 
-
 elif menu == "Cobros":
     st.title("Cobros")
     opcion = st.radio("Seleccione una opción", ["Ver Cobros", "Agregar Cobro", "Editar o Eliminar Cobro"])
@@ -882,11 +881,18 @@ elif menu == "Cobros":
         # Filtrar para mostrar solo contratos donde egreso_equipo es nulo o cero (no mostrar contratos de mantenciones/reparaciones)
         if "egreso_equipo" in df_cobros.columns:
             df_cobros = df_cobros[(df_cobros["egreso_equipo"].isnull()) | (df_cobros["egreso_equipo"] == 0)]
-        # Selección de contrato (folio)
-        if "folio" in df_cobros.columns and not df_cobros.empty:
-            folios_disponibles = df_cobros["folio"].drop_duplicates().astype(str).tolist()
+        # Determinar contratos vigentes y no vigentes
+        import datetime
+        hoy = datetime.date.today()
+        df_contratos["vigente"] = (df_contratos["fecha_inicio_contrato"] <= hoy) & (df_contratos["fecha_termino_contrato"] >= hoy)
+        # Filtro de vigencia
+        filtro_vigencia = st.radio("Filtrar por contratos", ["Vigentes", "No vigentes"], horizontal=True)
+        if filtro_vigencia == "Vigentes":
+            folios_vigentes = df_contratos[df_contratos["vigente"]]["folio"].astype(str).tolist()
         else:
-            folios_disponibles = []
+            folios_vigentes = df_contratos[~df_contratos["vigente"]]["folio"].astype(str).tolist()
+        # Selección de contrato (folio)
+        folios_disponibles = [f for f in df_cobros["folio"].drop_duplicates().astype(str).tolist() if f in folios_vigentes]
         if folios_disponibles:
             folio_seleccionado = st.selectbox("Seleccione el folio del contrato para ver sus cobros", folios_disponibles)
             cobros_folio = df_cobros[df_cobros["folio"] == int(folio_seleccionado)]
@@ -900,29 +906,38 @@ elif menu == "Cobros":
         st.subheader("Agregar Cobro")
         df_contratos = cargar_contratos()
         df_historial = cargar_historial_contrato()
-
-        if "folio" in df_contratos.columns and not df_contratos.empty:
-            folios_disponibles = df_contratos["folio"].astype(str).tolist()
+        # Determinar contratos vigentes y no vigentes
+        import datetime
+        hoy = datetime.date.today()
+        df_contratos["vigente"] = (df_contratos["fecha_inicio_contrato"] <= hoy) & (df_contratos["fecha_termino_contrato"] >= hoy)
+        filtro_vigencia = st.radio("Filtrar por contratos", ["Vigentes", "No vigentes"], horizontal=True)
+        if filtro_vigencia == "Vigentes":
+            folios_vigentes = df_contratos[df_contratos["vigente"]]["folio"].astype(str).tolist()
         else:
-            folios_disponibles = []
-
+            folios_vigentes = df_contratos[~df_contratos["vigente"]]["folio"].astype(str).tolist()
+        folios_disponibles = folios_vigentes
         if folios_disponibles:
             # Eliminar columnas duplicadas antes de operar
             df_historial = df_historial.loc[:, ~df_historial.columns.duplicated()]
             # Asegurar tipos correctos
             df_historial["id_historial"] = df_historial["id_historial"].astype(int)
             df_historial["folio"] = df_historial["folio"].astype(int)
-            # Obtener el id_historial más reciente de cada folio
-            idx = df_historial.groupby("folio")["id_historial"].idxmax()
-            historial_reciente = df_historial.loc[idx].sort_values("folio")
-            # Opciones para el selectbox: folio y equipo actual
-            opciones = [
-                f"{row['folio']} - Equipo actual: {row['numero_vigente']} (id_historial: {row['id_historial']})"
-                for _, row in historial_reciente.iterrows()
-            ]
-            seleccion = st.selectbox("Seleccione el folio y equipo actual para el cobro", opciones)
-            folio_seleccionado = int(seleccion.split(" - ")[0])
-            id_historial_seleccionado = int(seleccion.split("id_historial: ")[1].replace(")", ""))
+            # Obtener el id_historial más reciente de cada folio SOLO de los folios_disponibles (vigentes o no vigentes según filtro)
+            historial_filtrado = df_historial[df_historial["folio"].astype(str).isin(folios_disponibles)]
+            if not historial_filtrado.empty:
+                idx = historial_filtrado.groupby("folio")["id_historial"].idxmax()
+                historial_reciente = historial_filtrado.loc[idx].sort_values("folio")
+                # Opciones para el selectbox: folio y equipo actual
+                opciones = [
+                    f"{row['folio']} - Equipo actual: {row['numero_vigente']} (id_historial: {row['id_historial']})"
+                    for _, row in historial_reciente.iterrows()
+                ]
+                seleccion = st.selectbox("Seleccione el folio y equipo actual para el cobro", opciones)
+                folio_seleccionado = int(seleccion.split(" - ")[0])
+                id_historial_seleccionado = int(seleccion.split("id_historial: ")[1].replace(")", ""))
+            else:
+                st.info("No hay contratos disponibles para el filtro seleccionado.")
+                st.stop()
 
             contrato_seleccionado = df_contratos[df_contratos["folio"] == folio_seleccionado].iloc[0]
             equipo_actual = historial_reciente[historial_reciente["folio"] == folio_seleccionado]["numero_vigente"].iloc[0]
@@ -994,18 +1009,25 @@ elif menu == "Cobros":
         st.subheader("Editar o Eliminar Cobro")
         df_cobros = cargar_cobros()
         df_contratos = cargar_contratos()
-
-        if "folio" in df_contratos.columns and not df_contratos.empty:
-            folios_disponibles = df_contratos["folio"].astype(str).tolist()
+        # Determinar contratos vigentes y no vigentes
+        import datetime
+        hoy = datetime.date.today()
+        df_contratos["vigente"] = (df_contratos["fecha_inicio_contrato"] <= hoy) & (df_contratos["fecha_termino_contrato"] >= hoy)
+        filtro_vigencia = st.radio("Filtrar por contratos", ["Vigentes", "No vigentes"], horizontal=True)
+        if filtro_vigencia == "Vigentes":
+            folios_vigentes = df_contratos[df_contratos["vigente"]]["folio"].astype(str).tolist()
         else:
-            folios_disponibles = []
-
+            folios_vigentes = df_contratos[~df_contratos["vigente"]]["folio"].astype(str).tolist()
+        folios_disponibles = folios_vigentes
         if folios_disponibles:
             folio_seleccionado = st.selectbox("Seleccione el folio del contrato para editar un cobro", folios_disponibles)
             # Eliminar columnas duplicadas antes de filtrar para evitar errores de pandas
             df_cobros = df_cobros.loc[:, ~df_cobros.columns.duplicated()]
             # Filtrar cobros por folio seleccionado
             cobros_folio = df_cobros[df_cobros["folio"] == int(folio_seleccionado)]
+            # Filtrar para mostrar solo cobros donde egreso_equipo es nulo o cero (no mostrar gastos de mantención/reparación)
+            if "egreso_equipo" in cobros_folio.columns:
+                cobros_folio = cobros_folio[(cobros_folio["egreso_equipo"].isnull()) | (cobros_folio["egreso_equipo"] == 0)]
             # Mostrar el DataFrame filtrado para depuración
             st.write("Cobros encontrados para este folio:")
             st.dataframe(cobros_folio, use_container_width=True)
@@ -1046,8 +1068,8 @@ elif menu == "Cobros":
                                 pass
                         
                         fecha_pago = st.date_input("Fecha en la que se realiza el pago (cuando paga el cliente)", value=cobro_seleccionado["fecha_pago"])
-                        horas_extra = st.number_input("Horas extra de uso", min_value=0, step=1, value=cobro_seleccionado["horas_extra"])
-                        costo_hora_extra = st.number_input("Costo por horas extra", min_value=0, step=1000, value=cobro_seleccionado["costo_hora_extra"])
+                        horas_extra = st.number_input("Horas extra de uso", min_value=0, step=1, value=int(cobro_seleccionado["horas_extra"]))
+                        costo_hora_extra = st.number_input("Costo por horas extra", min_value=0, step=1000, value=int(cobro_seleccionado["costo_hora_extra"]))
                         estado = st.selectbox("Estado del cobro", ["Pendiente", "Pagado"], index=1 if cobro_seleccionado["estado"] == 2 else 0)
                         # Calcular el monto del cobro
                         monto_cobro = precio_mensual
