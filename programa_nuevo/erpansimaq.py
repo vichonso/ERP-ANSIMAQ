@@ -1,10 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-
-# Configuración de la página
-
-
 from sqlalchemy import text
 from sqlalchemy import create_engine
 
@@ -35,7 +31,7 @@ def cargar_contratos():
 
 def cargar_cobros():
     query = """
-        SELECT cobros.*, contrato.folio, contrato.rut_empresa, clientes.nombre_empresa
+        SELECT cobros.id_cobros, cobros.id_historial, cobros.numero_vigente, cobros.folio, cobros.fecha_pago, cobros.horas_extra, cobros.costo_hora_extra, cobros.estado, cobros.cobro, cobros.egreso_equipo, cobros.mes, cobros.anio, contrato.rut_empresa, clientes.nombre_empresa
         FROM cobros
         JOIN contrato ON cobros.folio = contrato.folio
         JOIN clientes ON contrato.rut_empresa = clientes.rut_empresa
@@ -870,13 +866,221 @@ elif menu == "Historial de Contratos":
                                 """), {"numero_vigente": numero_vigente})
                         st.warning("✅ Registro del historial eliminado exitosamente.")
     
-# elif menu == "Contratos": (hay que hacer todo el menu de cobros) TODOS ESTOS COBROS SON POR EL CONTRATO (FOLIO)
-# estos cobros se identifican como pago del contrato de forma mensual ya que se guarda el cobro INTEGER en la tabla cobros
-
-#INFO SOBRE TABLA COBROS:
-# EN HISTORIAL SE UTILIZA LA TABLA COBROS PARA GUARDAR LOS EGRESOS DEL EQUIPO LO QUE LOS DATOS GUARDADOS EN EL HISTORIAL DE EQUIPOS QUE SONDE TIPO MANTENCION O REPARACION GENERAN LA CREACION DE DATOS EN COBROS PERO SIN LLENAR:
-# COBRO, HORAS_EXTRA, COSTO_HORAS_EXTRA, RENTABILIDAD. 
-#POR LO TANTO HAY QUE CONDICIONAR QUE LOS COBROS QUE IMPORTAN AQUI TIENEN DATOS EN LAS CASILLAS MENCIONADAS ANTERIORMENTE. Y NO SE DEBE GUARDAR UN id_historial EN LA TABLA COBROS PARA ESTE TIPO DE COBROS 
-
 # debe contener - añadir cobro, editar cobro, eliminar cobro, ver cobros, ver cobros por folio, ver cobros por mes, ver cobros por estado (1=pendiente, 2=pagado)
 
+elif menu == "Cobros":
+    st.title("Cobros")
+    opcion = st.radio("Seleccione una opción", ["Ver Cobros", "Agregar Cobro", "Editar o Eliminar Cobro"])
+
+    if opcion == "Ver Cobros":
+        st.subheader("Ver Cobros")
+        
+    if opcion == "Agregar Cobro":
+        st.subheader("Agregar Cobro")
+        df_contratos = cargar_contratos()
+        df_historial = cargar_historial_contrato()
+
+        if "folio" in df_contratos.columns and not df_contratos.empty:
+            folios_disponibles = df_contratos["folio"].astype(str).tolist()
+        else:
+            folios_disponibles = []
+
+        if folios_disponibles:
+            # Eliminar columnas duplicadas antes de operar
+            df_historial = df_historial.loc[:, ~df_historial.columns.duplicated()]
+            # Asegurar tipos correctos
+            df_historial["id_historial"] = df_historial["id_historial"].astype(int)
+            df_historial["folio"] = df_historial["folio"].astype(int)
+            # Obtener el id_historial más reciente de cada folio
+            idx = df_historial.groupby("folio")["id_historial"].idxmax()
+            historial_reciente = df_historial.loc[idx].sort_values("folio")
+            # Opciones para el selectbox: folio y equipo actual
+            opciones = [
+                f"{row['folio']} - Equipo actual: {row['numero_vigente']} (id_historial: {row['id_historial']})"
+                for _, row in historial_reciente.iterrows()
+            ]
+            seleccion = st.selectbox("Seleccione el folio y equipo actual para el cobro", opciones)
+            folio_seleccionado = int(seleccion.split(" - ")[0])
+            id_historial_seleccionado = int(seleccion.split("id_historial: ")[1].replace(")", ""))
+
+            contrato_seleccionado = df_contratos[df_contratos["folio"] == folio_seleccionado].iloc[0]
+            equipo_actual = historial_reciente[historial_reciente["folio"] == folio_seleccionado]["numero_vigente"].iloc[0]
+            precio_mensual = contrato_seleccionado["precio_mensual"]
+            precio_envio = contrato_seleccionado["precio_envio"]
+            st.write(f"Contrato seleccionado: Folio {contrato_seleccionado['folio']}, Empresa: {contrato_seleccionado['rut_empresa']}, Nombre: {contrato_seleccionado['nombre_empresa']}")
+            st.info(f"Monto pactado mensual: ${precio_mensual:,.0f}")
+            st.write(f"Equipo actual: {equipo_actual}")
+
+            # Determinar si es el primer mes de arriendo (primer cobro para este folio)
+            df_cobros = cargar_cobros()
+            # Eliminar columnas duplicadas antes de filtrar para evitar errores de pandas
+            df_cobros = df_cobros.loc[:, ~df_cobros.columns.duplicated()]
+            cobros_folio = df_cobros[df_cobros["folio"] == folio_seleccionado]
+            es_primer_mes = cobros_folio.empty
+
+            # Calcular fecha de facturación (día 25 del mes actual o siguiente si ya pasó)
+            import datetime
+            hoy = datetime.date.today()
+            if hoy.day <= 25:
+                fecha_facturacion = hoy.replace(day=25)
+            else:
+                # Si ya pasó el 25, siguiente mes
+                if hoy.month == 12:
+                    fecha_facturacion = hoy.replace(year=hoy.year+1, month=1, day=25)
+                else:
+                    fecha_facturacion = hoy.replace(month=hoy.month+1, day=25)
+            st.info(f"Fecha de facturación proxima: {fecha_facturacion.strftime('%d/%m/%Y')}")
+
+            with st.form("form_agregar_cobro"):
+                fecha_facturacion_input = st.date_input("Fecha de facturación (emisión de la factura)", value=fecha_facturacion)
+                fecha_pago = st.date_input("Fecha en la que se realiza el pago (cuando paga el cliente)", value=fecha_facturacion)
+                horas_extra = st.number_input("Horas extra de uso", min_value=0, step=1, value=0)
+                costo_hora_extra = st.number_input("Costo por horas extra", min_value=0, step=1000, value=0)
+                estado = st.selectbox("Estado del cobro", ["Pendiente", "Pagado"], index=1)
+
+                # Calcular el monto del cobro
+                monto_cobro = precio_mensual
+                if es_primer_mes:
+                    monto_cobro += precio_envio
+                st.success(f"El monto sin contar horas extra es: ${monto_cobro:,.0f} (incluye envío solo en el primer mes)")
+
+                monto_cobro += horas_extra * costo_hora_extra
+                
+                submit_button = st.form_submit_button("Agregar Cobro")
+                if submit_button:
+                    # Obtener mes y año de la fecha de facturación seleccionada
+                    mes = int(fecha_facturacion_input.month)
+                    anio = int(fecha_facturacion_input.year)
+                    with engine.begin() as conn:
+                        conn.execute(text("""
+                            INSERT INTO cobros (id_historial, numero_vigente, folio, fecha_pago, horas_extra, costo_hora_extra, cobro, estado, mes, anio)
+                            VALUES (:id_historial, :numero_vigente, :folio, :fecha_pago, :horas_extra, :costo_hora_extra, :cobro, :estado, :mes, :anio)
+                        """), {
+                            "id_historial": int(id_historial_seleccionado),
+                            "numero_vigente": str(equipo_actual),
+                            "folio": int(folio_seleccionado),
+                            "fecha_pago": fecha_pago,
+                            "horas_extra": int(horas_extra),
+                            "costo_hora_extra": int(costo_hora_extra),
+                            "cobro": int(monto_cobro),
+                            "estado": 2 if estado == "Pagado" else 1,
+                            "mes": int(mes),
+                            "anio": int(anio)
+                        })
+                    st.success(f"✅ Cobro de ${int(monto_cobro):,.0f} agregado exitosamente.")
+                            
+
+    if opcion == "Editar o Eliminar Cobro":
+        st.subheader("Editar o Eliminar Cobro")
+        df_cobros = cargar_cobros()
+        df_contratos = cargar_contratos()
+
+        if "folio" in df_contratos.columns and not df_contratos.empty:
+            folios_disponibles = df_contratos["folio"].astype(str).tolist()
+        else:
+            folios_disponibles = []
+
+        if folios_disponibles:
+            folio_seleccionado = st.selectbox("Seleccione el folio del contrato para editar un cobro", folios_disponibles)
+            # Eliminar columnas duplicadas antes de filtrar para evitar errores de pandas
+            df_cobros = df_cobros.loc[:, ~df_cobros.columns.duplicated()]
+            # Filtrar cobros por folio seleccionado
+            cobros_folio = df_cobros[df_cobros["folio"] == int(folio_seleccionado)]
+            # Mostrar el DataFrame filtrado para depuración
+            st.write("Cobros encontrados para este folio:")
+            st.dataframe(cobros_folio, use_container_width=True)
+            if not cobros_folio.empty:
+                # Crear opciones de selección por mes y año, asegurando unicidad por año y mes
+                if "id_cobros" not in cobros_folio.columns:
+                    st.error("No se encontró la columna 'id_cobros' en los cobros. Revisa la estructura de la tabla.")
+                else:
+                    opciones_cobro = [
+                        f"Mes: {row['mes']:02d} / Año: {row['anio']} - ID: {row['id_cobros']}"
+                        for _, row in cobros_folio.sort_values(['anio','mes']).iterrows()
+                    ]
+                    if opciones_cobro:
+                        seleccion_cobro = st.selectbox("Seleccione el mes y año del cobro a editar", opciones_cobro)
+                        # Extraer id_cobros, mes y año del string seleccionado
+                        id_cobros_seleccionado = int(seleccion_cobro.split("ID: ")[1])
+                        cobro_seleccionado = cobros_folio[cobros_folio["id_cobros"] == id_cobros_seleccionado].iloc[0]
+
+                        contrato_seleccionado = df_contratos[df_contratos["folio"] == int(folio_seleccionado)].iloc[0]
+                        equipo_actual = cobro_seleccionado["numero_vigente"]
+                        precio_mensual = contrato_seleccionado["precio_mensual"]
+                        precio_envio = contrato_seleccionado["precio_envio"]
+                        st.write(f"Contrato seleccionado: Folio {contrato_seleccionado['folio']}, Empresa: {contrato_seleccionado['rut_empresa']}, Nombre: {contrato_seleccionado['nombre_empresa']}")
+                        st.info(f"Monto pactado mensual: ${precio_mensual:,.0f}")
+                        st.write(f"Equipo del pago: {equipo_actual}")
+
+                        # Calcular fecha de facturación (día 25 del mes actual o siguiente si ya pasó)
+                        import datetime
+                        hoy = datetime.date.today()
+                        if hoy.day <= 25:
+                            fecha_facturacion = hoy.replace(day=25)
+                        else:
+                            # Si ya pasó el 25, siguiente mes
+                            if hoy.month == 12:
+                                fecha_facturacion = hoy.replace(year=hoy.year+1, month=1, day=25)
+                            else:
+                                # No se requiere acción adicional aquí, solo para evitar error de indentación
+                                pass
+                        
+                        fecha_pago = st.date_input("Fecha en la que se realiza el pago (cuando paga el cliente)", value=cobro_seleccionado["fecha_pago"])
+                        horas_extra = st.number_input("Horas extra de uso", min_value=0, step=1, value=cobro_seleccionado["horas_extra"])
+                        costo_hora_extra = st.number_input("Costo por horas extra", min_value=0, step=1000, value=cobro_seleccionado["costo_hora_extra"])
+                        estado = st.selectbox("Estado del cobro", ["Pendiente", "Pagado"], index=1 if cobro_seleccionado["estado"] == 2 else 0)
+                        # Calcular el monto del cobro
+                        monto_cobro = precio_mensual
+                        # Identificar el primer cobro del contrato (primer mes)
+                        cobros_ordenados = cobros_folio.sort_values(["anio", "mes"]).reset_index(drop=True)
+                        es_primer_mes = False
+                        if not cobros_ordenados.empty:
+                            primer_cobro = cobros_ordenados.iloc[0]
+                            if (
+                                cobro_seleccionado["mes"] == primer_cobro["mes"]
+                                and cobro_seleccionado["anio"] == primer_cobro["anio"]
+                            ):
+                                es_primer_mes = True
+                        if es_primer_mes:
+                            monto_cobro += precio_envio
+                        st.success(f"El monto sin contar horas extra es: ${monto_cobro:,.0f} (incluye envío solo en el primer mes)")
+                        monto_cobro += horas_extra * costo_hora_extra
+
+                        with st.form("form_editar_cobro"):
+                            st.success(f"El monto total del cobro es: ${monto_cobro:,.0f}")
+                            submit_button = st.form_submit_button("Guardar Cambios")
+                            eliminar_button = st.form_submit_button("Eliminar Cobro")
+                            confirmacion = st.checkbox("CONFIRMAR ELIMINACIÓN")
+                        if submit_button:
+                            # Actualizar cobro
+                            with engine.begin() as conn:
+                                conn.execute(text("""
+                                    UPDATE cobros
+                                    SET numero_vigente = :numero_vigente, folio = :folio, fecha_pago = :fecha_pago, horas_extra = :horas_extra, costo_hora_extra = :costo_hora_extra, cobro = :cobro, estado = :estado, mes = :mes, anio = :anio
+                                    WHERE id_cobros = :id_cobros
+                                """), {
+                                    "numero_vigente": str(equipo_actual),
+                                    "folio": int(folio_seleccionado),
+                                    "fecha_pago": fecha_pago,
+                                    "horas_extra": int(horas_extra),
+                                    "costo_hora_extra": int(costo_hora_extra),
+                                    "cobro": int(monto_cobro),
+                                    "estado": 2 if estado == "Pagado" else 1,
+                                    "mes": int(cobro_seleccionado["mes"]),
+                                    "anio": int(cobro_seleccionado["anio"]),
+                                    "id_cobros": id_cobros_seleccionado
+                                })
+                            st.success(f"✅ Cobro de ${int(monto_cobro):,.0f} actualizado exitosamente.")
+                        if eliminar_button:
+                            if confirmacion:
+                                with engine.begin() as conn:
+                                    # Eliminar el cobro seleccionado
+                                    conn.execute(text("DELETE FROM cobros WHERE id_cobros = :id_cobros"), {"id_cobros": id_cobros_seleccionado})
+                                    st.warning("✅ Cobro eliminado exitosamente.")
+
+                    else:
+                        st.warning("No hay opciones de cobro para mostrar.")
+            else:
+                st.warning("No hay cobros registrados para este folio de contrato.")
+            
+                        
