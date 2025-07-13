@@ -70,7 +70,7 @@ st.markdown("""
 
 
 # Conexión a la base de datos PostgreSQL
-engine = create_engine('postgresql+psycopg2://bdd_nqcs_user:Bt4Z23ApSCu2756uM4GWJUMYdfE3gbmQ@dpg-d1q292jipnbc738jeeb0-a.oregon-postgres.render.com/bdd_nqcs')
+engine = create_engine('postgresql+psycopg2://postgres:pc-database@localhost:5432/ansimaq_bdd')
 
 
 # Funciones para cargar datos de las tablas principales
@@ -160,17 +160,10 @@ if menu == "Inicio":
     col4.metric("📉 Utilidad neta", f"${utilidad_total:,.0f}")
 
     st.markdown("---")
-    st.subheader("🔋 Detalle de equipos disponibles")
+    st.subheader("🔋 Detalle de generadores disponibles")
     if total_generadores > 0:
-        df_disp = generadores_disponibles.copy()
-        df_disp["estado"] = "Disponible"
-        df_disp = df_disp.rename(columns={
-            "numero_vigente": "Numero vigente",
-            "nombre_modelo": "Nombre del modelo",
-            "estado": "Estado"
-        })
         st.dataframe(
-            df_disp[["Numero vigente", "Nombre del modelo", "Estado"]],
+            generadores_disponibles[["numero_vigente", "nombre_modelo", "estado"]],
             use_container_width=True
         )
     else:
@@ -186,15 +179,10 @@ if menu == "Inicio":
             "month": df_pagos["mes"],
             "day": 25
         }, errors="coerce")
-        # Renombrar columnas para mostrar nombres amigables
-        df_pagos = df_pagos.rename(columns={
-            "folio": "Folio",
-            "cobro": "Monto del cobro",
-            "fecha_facturacion": "Fecha de facturacion",
-            "fecha_pago": "Fecha en la que se pagará"
-        })
+        # Renombrar columna para mostrar como "fecha en la que se pagará"
+        df_pagos = df_pagos.rename(columns={"fecha_pago": "fecha en la que se pagará"})
         st.dataframe(
-            df_pagos[["Folio", "Monto del cobro", "Fecha de facturacion", "Fecha en la que se pagará"]],
+            df_pagos[["folio", "cobro", "fecha_facturacion", "fecha en la que se pagará"]],
             use_container_width=True
         )
     else:
@@ -208,21 +196,13 @@ if menu == "Inicio":
             egreso=("egreso_equipo", "sum") if "egreso_equipo" in df_cobros.columns else (lambda x: 0),
         )
         utilidad_por_equipo["utilidad"] = utilidad_por_equipo["ingreso"] - utilidad_por_equipo["egreso"]
-        # Renombrar columnas para visualización
-        utilidad_por_equipo = utilidad_por_equipo.rename(columns={
-            "ingreso": "Ingreso",
-            "egreso": "Egreso",
-            "utilidad": "Utilidad"
-        })
-        utilidad_por_equipo.index.name = "Numero vigente"
-        utilidad_por_equipo = utilidad_por_equipo.reset_index()
-        top_equipos = utilidad_por_equipo.sort_values("Utilidad", ascending=False).head(5)
-        low_equipos = utilidad_por_equipo.sort_values("Utilidad", ascending=True).head(5)
+        top_equipos = utilidad_por_equipo.sort_values("utilidad", ascending=False).head(5)
+        low_equipos = utilidad_por_equipo.sort_values("utilidad", ascending=True).head(5)
         st.write("### 🔝 Equipos con mayor utilidad")
-        st.dataframe(top_equipos[["Numero vigente", "Ingreso", "Egreso", "Utilidad"]])
+        st.dataframe(top_equipos)
         st.write("### 🔻 Equipos con menor utilidad")
-        st.dataframe(low_equipos[["Numero vigente", "Ingreso", "Egreso", "Utilidad"]])
-        st.bar_chart(utilidad_por_equipo.set_index("Numero vigente")["Utilidad"])
+        st.dataframe(low_equipos)
+        st.bar_chart(utilidad_por_equipo["utilidad"])
     else:
         st.info("No hay datos suficientes para mostrar ranking de utilidad.")
 
@@ -240,24 +220,13 @@ if menu == "Inicio":
             egreso=("egreso_equipo", "sum"),
         )
         resumen_equipo["utilidad"] = resumen_equipo["ingreso"] - resumen_equipo["egreso"]
-        resumen_equipo = resumen_equipo.reset_index()
-        # Renombrar columnas
-        resumen_equipo = resumen_equipo.rename(columns={
-            "anio": "Año",
-            "mes": "Mes",
-            "ingreso": "Ingreso",
-            "egreso": "Egreso",
-            "utilidad": "Utilidad"
-        })
+        resumen_equipo = resumen_equipo.reset_index()  # Fix for MultiIndex KeyError in line_chart
         st.write("#### Resumen mensual")
-        st.dataframe(resumen_equipo[["Año", "Mes", "Ingreso", "Egreso", "Utilidad"]])
-        # Crear columna para eje X: 'Año-Mes'
-        resumen_equipo["Año-Mes"] = resumen_equipo["Año"].astype(str) + "-" + resumen_equipo["Mes"].astype(str).str.zfill(2)
-        resumen_equipo = resumen_equipo.set_index("Año-Mes")
-        st.line_chart(resumen_equipo[["Ingreso", "Egreso", "Utilidad"]])
-        st.write(f"**Total Ingreso:** ${resumen_equipo['Ingreso'].sum():,.0f}")
-        st.write(f"**Total Egreso:** ${resumen_equipo['Egreso'].sum():,.0f}")
-        st.write(f"**Utilidad Total:** ${resumen_equipo['Utilidad'].sum():,.0f}")
+        st.dataframe(resumen_equipo)
+        st.line_chart(resumen_equipo[["ingreso", "egreso", "utilidad"]])
+        st.write(f"**Total Ingreso:** ${resumen_equipo['ingreso'].sum():,.0f}")
+        st.write(f"**Total Egreso:** ${resumen_equipo['egreso'].sum():,.0f}")
+        st.write(f"**Utilidad Total:** ${resumen_equipo['utilidad'].sum():,.0f}")
     else:
         st.info("No hay cobros registrados para este equipo.")
 
@@ -292,24 +261,13 @@ if menu == "Inicio":
                 egreso=("egreso_equipo", "sum"),
             )
             resumen_contrato["utilidad"] = resumen_contrato["ingreso"] - resumen_contrato["egreso"]
-            resumen_contrato = resumen_contrato.reset_index()
-            # Renombrar columnas
-            resumen_contrato = resumen_contrato.rename(columns={
-                "anio": "Año",
-                "mes": "Mes",
-                "ingreso": "Ingreso",
-                "egreso": "Egreso",
-                "utilidad": "Utilidad"
-            })
+            resumen_contrato = resumen_contrato.reset_index()  # Fix for MultiIndex KeyError in line_chart
             st.write("#### Resumen mensual")
-            st.dataframe(resumen_contrato[["Año", "Mes", "Ingreso", "Egreso", "Utilidad"]])
-            # Crear columna para eje X: 'Año-Mes'
-            resumen_contrato["Año-Mes"] = resumen_contrato["Año"].astype(str) + "-" + resumen_contrato["Mes"].astype(str).str.zfill(2)
-            resumen_contrato = resumen_contrato.set_index("Año-Mes")
-            st.line_chart(resumen_contrato[["Ingreso", "Egreso", "Utilidad"]])
-            st.write(f"**Total Ingreso:** ${resumen_contrato['Ingreso'].sum():,.0f}")
-            st.write(f"**Total Egreso:** ${resumen_contrato['Egreso'].sum():,.0f}")
-            st.write(f"**Utilidad Total:** ${resumen_contrato['Utilidad'].sum():,.0f}")
+            st.dataframe(resumen_contrato)
+            st.line_chart(resumen_contrato[["ingreso", "egreso", "utilidad"]])
+            st.write(f"**Total Ingreso:** ${resumen_contrato['ingreso'].sum():,.0f}")
+            st.write(f"**Total Egreso:** ${resumen_contrato['egreso'].sum():,.0f}")
+            st.write(f"**Utilidad Total:** ${resumen_contrato['utilidad'].sum():,.0f}")
         else:
             st.info("No hay cobros registrados para este contrato.")
     else:
@@ -326,19 +284,8 @@ if menu == "Inicio":
             egreso=("egreso_equipo", "sum"),
         )
         tendencia["utilidad"] = tendencia["ingreso"] - tendencia["egreso"]
-        tendencia = tendencia.reset_index()
-        # Renombrar columnas
-        tendencia = tendencia.rename(columns={
-            "anio": "Año",
-            "mes": "Mes",
-            "ingreso": "Ingreso",
-            "egreso": "Egreso",
-            "utilidad": "Utilidad"
-        })
-        # Crear columna para eje X: 'Año-Mes'
-        tendencia["Año-Mes"] = tendencia["Año"].astype(str) + "-" + tendencia["Mes"].astype(str).str.zfill(2)
-        tendencia = tendencia.set_index("Año-Mes")
-        st.line_chart(tendencia[["Ingreso", "Egreso", "Utilidad"]])
+        tendencia = tendencia.reset_index()  # Fix for MultiIndex KeyError in line_chart
+        st.line_chart(tendencia[["ingreso", "egreso", "utilidad"]])
     else:
         st.info("No hay datos de fechas para mostrar tendencia.")
 
@@ -370,35 +317,16 @@ if menu == "Inicio":
         "nombre_empresa" in df_clientes.columns and
         "cobro" in df_cobros.columns
     ):
-        # Sumar ingresos y egresos por folio (contrato)
-        resumen_folio = df_cobros.groupby("folio").agg(
-            ingresos=("cobro", "sum"),
-            egresos=("egreso_equipo", "sum") if "egreso_equipo" in df_cobros.columns else (lambda x: 0),
-        ).reset_index()
-        # Unir con contratos para obtener rut_empresa y egreso_arriendo
-        contratos_info = df_contratos[["folio", "rut_empresa", "egreso_arriendo"]].copy()
-        resumen_folio = resumen_folio.merge(contratos_info, on="folio", how="left")
-        # Sumar egreso_arriendo al egreso total de cada folio
-        resumen_folio["egresos_totales"] = resumen_folio["egresos"] + resumen_folio["egreso_arriendo"].fillna(0)
-        # Agrupar por cliente (rut_empresa)
-        resumen_cliente = resumen_folio.groupby("rut_empresa").agg(
-            ingreso_total=("ingresos", "sum"),
-            egreso_total=("egresos_totales", "sum")
-        ).reset_index()
-        resumen_cliente["utilidad_total"] = resumen_cliente["ingreso_total"] - resumen_cliente["egreso_total"]
+        # Sumar ingresos por folio
+        ingresos_por_folio = df_cobros.groupby("folio").agg(ingresos=("cobro", "sum")).reset_index()
+        # Unir con contratos para obtener rut_empresa
+        ingresos_contrato = ingresos_por_folio.merge(df_contratos[["folio", "rut_empresa"]], on="folio", how="left")
+        # Sumar ingresos por rut_empresa
+        ranking_clientes = ingresos_contrato.groupby("rut_empresa").agg(ingresos=("ingresos", "sum")).reset_index()
         # Unir con clientes para obtener nombre_empresa
-        resumen_cliente = resumen_cliente.merge(df_clientes[["rut_empresa", "nombre_empresa"]], on="rut_empresa", how="left")
-        resumen_cliente = resumen_cliente[["nombre_empresa", "ingreso_total", "egreso_total", "utilidad_total"]]
-        resumen_cliente = resumen_cliente.rename(columns={
-            "nombre_empresa": "Nombre de empresa",
-            "ingreso_total": "Ingreso total",
-            "egreso_total": "Egreso total",
-            "utilidad_total": "Utilidad total"
-        })
-        resumen_cliente = resumen_cliente.sort_values("Ingreso total", ascending=False)
-        st.dataframe(resumen_cliente)
-        # Comentario sobre egreso_arriendo:
-        st.caption("Nota: El campo 'egreso_arriendo' en la tabla contratos representa el egreso acumulado asociado a cada contrato y se suma al egreso total del cliente.")
+        ranking_clientes = ranking_clientes.merge(df_clientes[["rut_empresa", "nombre_empresa"]], on="rut_empresa", how="left")
+        ranking_clientes = ranking_clientes.sort_values("ingresos", ascending=False)
+        st.dataframe(ranking_clientes[["nombre_empresa", "ingresos"]])
     else:
         st.info("No hay datos suficientes para mostrar ranking de clientes.")
 
@@ -442,14 +370,7 @@ elif menu == "Equipos":
 
         # Resetear el índice para evitar errores de pandas al filtrar
         df_filtrado = df_filtrado.reset_index(drop=True)
-        # Renombrar columnas para visualización
-        df_filtrado = df_filtrado.rename(columns={
-            "numero_vigente": "Numero vigente",
-            "nombre_modelo": "Nombre del modelo",
-            "estado": "Estado"
-        })
-        columnas_mostrar = [col for col in ["Numero vigente", "Nombre del modelo", "Estado"] if col in df_filtrado.columns]
-        st.dataframe(df_filtrado[columnas_mostrar] if columnas_mostrar else df_filtrado)
+        st.dataframe(df_filtrado)
     
     elif opcion == "Agregar Equipo":
         st.subheader("Agregar Nuevo Equipo")
@@ -546,27 +467,7 @@ elif menu == "Clientes":
             ]
         # Resetear el índice para evitar errores de pandas al filtrar
         df_filtrado = df_filtrado.reset_index(drop=True)
-        # Renombrar columnas para visualización
-        df_filtrado = df_filtrado.rename(columns={
-            "rut_empresa": "Rut de la empresa",
-            "nombre_empresa": "Nombre de la empresa",
-            "obra": "Obra",
-            "nombre_representante": "Nombre del representante",
-            "rut_representante": "Rut del representante",
-            "correo": "Correo",
-            "telefono": "Telefono"
-        })
-        columnas_mostrar = [
-            "Rut de la empresa",
-            "Nombre de la empresa",
-            "Obra",
-            "Nombre del representante",
-            "Rut del representante",
-            "Correo",
-            "Telefono"
-        ]
-        columnas_mostrar = [col for col in columnas_mostrar if col in df_filtrado.columns]
-        st.dataframe(df_filtrado[columnas_mostrar] if columnas_mostrar else df_filtrado)
+        st.dataframe(df_filtrado)
     
     elif opcion == "Agregar Cliente":
         st.subheader("Agregar Nuevo Cliente")
@@ -690,43 +591,7 @@ elif menu == "Contratos":
                 df_contratos_filtrados["nombre_empresa"].str.contains(busqueda, case=False, na=False) |
                 df_contratos_filtrados["rut_representante"].str.contains(busqueda, case=False, na=False)
             ]
-        # Renombrar columnas para visualización
-        df_contratos_filtrados = df_contratos_filtrados.rename(columns={
-            "folio": "Folio",
-            "rut_empresa": "Rut de la empresa",
-            "precio_mensual": "Precio mensual",
-            "horas_contrtadas": "Horas contratadas",
-            "fecha_inicio_contrato": "Fecha de inicio",
-            "fecha_termino_contrato": "Fecha de termino",
-            "egreso_arriendo": "Egreso del arriendo",
-            "precio_envio": "Precio de instalación",
-            "nombre_empresa": "Nombre de la empresa",
-            "nombre_representante": "Nombre del representante",
-            "rut_representante": "Rut del representante",
-            "obra": "Obra",
-            "correo": "Correo",
-            "telefono": "Telefono",
-            "vigente": "Vigencia"
-        })
-        columnas_mostrar = [
-            "Folio",
-            "Rut de la empresa",
-            "Precio mensual",
-            "Horas contratadas",
-            "Fecha de inicio",
-            "Fecha de termino",
-            "Egreso del arriendo",
-            "Precio de instalación",
-            "Nombre de la empresa",
-            "Nombre del representante",
-            "Rut del representante",
-            "Obra",
-            "Correo",
-            "Telefono",
-            "Vigencia"
-        ]
-        columnas_mostrar = [col for col in columnas_mostrar if col in df_contratos_filtrados.columns]
-        st.dataframe(df_contratos_filtrados[columnas_mostrar] if columnas_mostrar else df_contratos_filtrados)
+        st.dataframe(df_contratos_filtrados)
 
     elif opcion == "Agregar Contrato":
         st.subheader("Agregar Nuevo Contrato")
@@ -966,7 +831,6 @@ elif menu == "Historial de Contratos":
         st.subheader("Historial de Contratos")
         df_historial = cargar_historial_contrato()
         df_contratos = cargar_contratos()
-        df_clientes = cargar_clientes() if 'cargar_clientes' in globals() else None
         # Eliminar columnas duplicadas conservando la primera aparición
         df_historial = df_historial.loc[:, ~df_historial.columns.duplicated()]
         # Filtro de vigencia antes de seleccionar folio
@@ -999,37 +863,8 @@ elif menu == "Historial de Contratos":
             folio_seleccionado = st.selectbox("Seleccione el folio de contrato para ver sus servicios", folios_disponibles)
             # Filtrar todos los servicios asociados a ese folio
             servicios_folio = df_historial[df_historial["folio"] == folio_seleccionado].reset_index(drop=True)
-            # Asegurar que 'rut_empresa' esté en servicios_folio
-            if "rut_empresa" not in servicios_folio.columns:
-                contratos_folio = df_contratos[df_contratos["folio"] == folio_seleccionado][["folio", "rut_empresa"]]
-                servicios_folio = servicios_folio.merge(contratos_folio, on="folio", how="left")
-            # Unir con clientes para obtener nombre_empresa
-            if df_clientes is not None and "rut_empresa" in servicios_folio.columns:
-                servicios_folio = servicios_folio.merge(df_clientes[["rut_empresa", "nombre_empresa"]], on="rut_empresa", how="left")
-            # Renombrar columnas
-            servicios_folio = servicios_folio.rename(columns={
-                "id_historial": "ID del historial",
-                "folio": "Folio",
-                "numero_vigente": "Numero vigente",
-                "tipo_servicio": "Tipo de servicio",
-                "fecha_servicio": "Fecha del servicio",
-                "horometro": "Horometro",
-                "rut_empresa": "Rut de la empresa",
-                "nombre_empresa": "Nombre de la empresa"
-            })
-            columnas_mostrar = [
-                "ID del historial",
-                "Folio",
-                "Numero vigente",
-                "Tipo de servicio",
-                "Fecha del servicio",
-                "Horometro",
-                "Rut de la empresa",
-                "Nombre de la empresa"
-            ]
-            columnas_mostrar = [col for col in columnas_mostrar if col in servicios_folio.columns]
             if not servicios_folio.empty:
-                st.dataframe(servicios_folio[columnas_mostrar], use_container_width=True)
+                st.dataframe(servicios_folio, use_container_width=True)
             else:
                 st.warning("No hay servicios registrados para este folio de contrato.")
         else:
@@ -1202,67 +1037,24 @@ elif menu == "Historial de Contratos":
             # Eliminar columnas duplicadas nuevamente por robustez antes de filtrar por folio
             df_historial = df_historial.loc[:, ~df_historial.columns.duplicated()]
             historial_folio = df_historial[df_historial["folio"] == int(folio_seleccionado)]
-            # --- Igualar visualización a 'Ver Historial' ---
-            df_contratos = cargar_contratos()
-            df_clientes = cargar_clientes() if 'cargar_clientes' in globals() else None
-            # Asegurar que 'rut_empresa' esté en historial_folio
-            if "rut_empresa" not in historial_folio.columns:
-                contratos_folio = df_contratos[df_contratos["folio"] == int(folio_seleccionado)][["folio", "rut_empresa"]]
-                historial_folio = historial_folio.merge(contratos_folio, on="folio", how="left")
-            # Unir con clientes para obtener nombre_empresa
-            if df_clientes is not None and "rut_empresa" in historial_folio.columns:
-                historial_folio = historial_folio.merge(df_clientes[["rut_empresa", "nombre_empresa"]], on="rut_empresa", how="left")
-            # Renombrar columnas
-            historial_folio = historial_folio.rename(columns={
-                "id_historial": "ID del historial",
-                "folio": "Folio",
-                "numero_vigente": "Numero vigente",
-                "tipo_servicio": "Tipo de servicio",
-                "fecha_servicio": "Fecha del servicio",
-                "horometro": "Horometro",
-                "rut_empresa": "Rut de la empresa",
-                "nombre_empresa": "Nombre de la empresa"
-            })
-            columnas_mostrar = [
-                "ID del historial",
-                "Folio",
-                "Numero vigente",
-                "Tipo de servicio",
-                "Fecha del servicio",
-                "Horometro",
-                "Rut de la empresa",
-                "Nombre de la empresa"
-            ]
-            columnas_mostrar = [col for col in columnas_mostrar if col in historial_folio.columns]
             if not historial_folio.empty:
                 st.info("Registros del historial para este folio:")
-                st.dataframe(historial_folio[columnas_mostrar], use_container_width=True)
-                id_historial_seleccionado = st.selectbox("Seleccione el ID del registro a editar", historial_folio["ID del historial"].tolist())
-                registro_seleccionado = historial_folio[historial_folio["ID del historial"] == id_historial_seleccionado].iloc[0]
+                st.dataframe(historial_folio, use_container_width=True)
+                id_historial_seleccionado = st.selectbox("Seleccione el ID del registro a editar", historial_folio["id_historial"].tolist())
+                registro_seleccionado = historial_folio[historial_folio["id_historial"] == id_historial_seleccionado].iloc[0]
 
                 # Para el selectbox de equipos, mostrar disponibles y el actual
-                # Usar el nombre de columna renombrado
-                equipo_actual = registro_seleccionado["Numero vigente"] if "Numero vigente" in registro_seleccionado else None
+                equipo_actual = registro_seleccionado["numero_vigente"]
                 equipos_disponibles = df_equipos[df_equipos["estado"] == 1]["numero_vigente"].tolist()
-                if equipo_actual and equipo_actual not in equipos_disponibles:
+                if equipo_actual not in equipos_disponibles:
                     equipos_disponibles.append(equipo_actual)
 
                 with st.form("form_editar_historial"):
                     numero_vigente = st.selectbox("Seleccione el número vigente del equipo", equipos_disponibles, index=equipos_disponibles.index(equipo_actual) if equipo_actual in equipos_disponibles else 0)
                     tipos_servicio = ["Mantenimiento", "Reparación", "Cambio del equipo", "Entrega en obra", "Otro"]
-                    # Usar el nombre de columna renombrado
-                    valor_tipo_servicio = registro_seleccionado["Tipo de servicio"] if "Tipo de servicio" in registro_seleccionado else None
-                    tipo_servicio = st.selectbox(
-                        "Seleccione el tipo de servicio",
-                        tipos_servicio,
-                        index=tipos_servicio.index(valor_tipo_servicio) if valor_tipo_servicio in tipos_servicio else 0
-                    )
-                    # Usar el nombre de columna renombrado
-                    valor_fecha_servicio = registro_seleccionado["Fecha del servicio"] if "Fecha del servicio" in registro_seleccionado else None
-                    fecha_servicio = st.date_input("Fecha del servicio", value=valor_fecha_servicio)
-                    # Usar el nombre de columna renombrado
-                    valor_horometro = registro_seleccionado["Horometro"] if "Horometro" in registro_seleccionado else 0
-                    horometro = st.number_input("Horómetro al momento del servicio", min_value=0, step=1, value=valor_horometro)
+                    tipo_servicio = st.selectbox("Seleccione el tipo de servicio", tipos_servicio, index=tipos_servicio.index(registro_seleccionado["tipo_servicio"]) if registro_seleccionado["tipo_servicio"] in tipos_servicio else 0)
+                    fecha_servicio = st.date_input("Fecha del servicio", value=registro_seleccionado["fecha_servicio"])
+                    horometro = st.number_input("Horómetro al momento del servicio", min_value=0, step=1, value=registro_seleccionado["horometro"])
                     # Mostrar el costo anterior si es mantenimiento o reparación
                     # Buscar el cobro asociado a este id_historial para mostrar el valor anterior
                     egreso_anterior = 0
@@ -1395,7 +1187,6 @@ elif menu == "Cobros":
         st.subheader("Ver Cobros")
         df_cobros = cargar_cobros()
         df_contratos = cargar_contratos()
-        df_clientes = cargar_clientes() if 'cargar_clientes' in globals() else None
         # Eliminar columnas duplicadas antes de mostrar
         df_cobros = df_cobros.loc[:, ~df_cobros.columns.duplicated()]
         # Filtrar para mostrar solo contratos donde egreso_equipo es nulo o cero (no mostrar contratos de mantenciones/reparaciones)
@@ -1413,58 +1204,14 @@ elif menu == "Cobros":
             folios_vigentes = df_contratos[df_contratos["vigente"]]["folio"].astype(str).tolist()
         else:
             folios_vigentes = df_contratos[~df_contratos["vigente"]]["folio"].astype(str).tolist()
-        # Unir con contratos y clientes para obtener rut y nombre empresa
-        if "folio" in df_cobros.columns and df_clientes is not None:
-            df_cobros = df_cobros.merge(df_contratos[["folio", "rut_empresa"]], on="folio", how="left")
-            if "rut_empresa" in df_cobros.columns:
-                df_cobros = df_cobros.merge(df_clientes[["rut_empresa", "nombre_empresa"]], on="rut_empresa", how="left")
-        # Filtrar para mostrar solo cobros reales (egreso_equipo nulo o cero)
-        if "egreso_equipo" in df_cobros.columns:
-            df_cobros = df_cobros[(df_cobros["egreso_equipo"].isnull()) | (df_cobros["egreso_equipo"] == 0)]
-        else:
-            df_cobros = df_cobros[df_cobros.get("egreso_equipo", pd.Series([None]*len(df_cobros))).isnull()]
-        # Filtrar para mostrar solo cobros reales (egreso_equipo nulo o cero)
-        if "egreso_equipo" in df_cobros.columns:
-            df_cobros = df_cobros[(df_cobros["egreso_equipo"].isnull()) | (df_cobros["egreso_equipo"] == 0)]
-        else:
-            df_cobros = df_cobros[df_cobros.get("egreso_equipo", pd.Series([None]*len(df_cobros))).isnull()]
-        # Renombrar columnas para visualización
-        df_cobros = df_cobros.rename(columns={
-            "id_cobros": "ID cobro",
-            "id_historial": "ID historial",
-            "numero_vigente": "Numero vigente",
-            "folio": "Folio",
-            "fecha_pago": "Fecha en la que se paga",
-            "horas_extra": "Horas extra",
-            "costo_hora_extra": "Costo de horas extra",
-            "estado": "Estado",
-            "cobro": "Cobro",
-            "mes": "Mes de facturacion",
-            "anio": "Año de facturacion",
-            "rut_empresa": "Rut de la empresa",
-            "nombre_empresa": "Nombre de la empresa"
-        })
-        columnas_mostrar = [
-            "ID cobro",
-            "ID historial",
-            "Numero vigente",
-            "Folio",
-            "Fecha en la que se paga",
-            "Horas extra",
-            "Costo de horas extra",
-            "Estado",
-            "Cobro",
-            "Mes de facturacion",
-            "Año de facturacion",
-            "Rut de la empresa",
-            "Nombre de la empresa"
-        ]
         # Selección de contrato (folio)
-        folios_disponibles = [f for f in df_cobros["Folio"].drop_duplicates().astype(str).tolist() if f in folios_vigentes]
+        folios_disponibles = [f for f in df_cobros["folio"].drop_duplicates().astype(str).tolist() if f in folios_vigentes]
         if folios_disponibles:
             folio_seleccionado = st.selectbox("Seleccione el folio del contrato para ver sus cobros", folios_disponibles)
-            cobros_folio = df_cobros[df_cobros["Folio"] == int(folio_seleccionado)]
-            st.dataframe(cobros_folio[[col for col in columnas_mostrar if col in cobros_folio.columns]], use_container_width=True)
+            cobros_folio = df_cobros[df_cobros["folio"] == int(folio_seleccionado)]
+            # Ocultar columna egreso_equipo si existe
+            columnas_a_mostrar = [col for col in cobros_folio.columns if col != "egreso_equipo"]
+            st.dataframe(cobros_folio[columnas_a_mostrar], use_container_width=True)
         else:
             st.info("No hay cobros registrados.")
         
@@ -1575,7 +1322,7 @@ elif menu == "Cobros":
         st.subheader("Editar o Eliminar Cobro")
         df_cobros = cargar_cobros()
         df_contratos = cargar_contratos()
-        df_clientes = cargar_clientes() if 'cargar_clientes' in globals() else None
+        # Determinar contratos vigentes y no vigentes
         import datetime
         hoy = datetime.date.today()
         df_contratos["vigente"] = (df_contratos["fecha_inicio_contrato"] <= hoy) & (df_contratos["fecha_termino_contrato"] >= hoy)
@@ -1587,88 +1334,80 @@ elif menu == "Cobros":
         folios_disponibles = folios_vigentes
         if folios_disponibles:
             folio_seleccionado = st.selectbox("Seleccione el folio del contrato para editar un cobro", folios_disponibles)
+            # Eliminar columnas duplicadas antes de filtrar para evitar errores de pandas
             df_cobros = df_cobros.loc[:, ~df_cobros.columns.duplicated()]
+            # Filtrar cobros por folio seleccionado
             cobros_folio = df_cobros[df_cobros["folio"] == int(folio_seleccionado)]
+            # Filtrar para mostrar solo cobros donde egreso_equipo es nulo o cero (no mostrar gastos de mantención/reparación)
             if "egreso_equipo" in cobros_folio.columns:
-                cobros_folio = cobros_folio[cobros_folio["egreso_equipo"].isnull()]
-            if "folio" in cobros_folio.columns and df_clientes is not None:
-                cobros_folio = cobros_folio.merge(df_contratos[["folio", "rut_empresa"]], on="folio", how="left")
-                if "rut_empresa" in cobros_folio.columns:
-                    cobros_folio = cobros_folio.merge(df_clientes[["rut_empresa", "nombre_empresa"]], on="rut_empresa", how="left")
-            cobros_folio = cobros_folio.rename(columns={
-                "id_cobros": "ID cobro",
-                "id_historial": "ID historial",
-                "numero_vigente": "Numero vigente",
-                "folio": "Folio",
-                "fecha_pago": "Fecha en la que se paga",
-                "horas_extra": "Horas extra",
-                "costo_hora_extra": "Costo de horas extra",
-                "estado": "Estado",
-                "cobro": "Cobro",
-                "mes": "Mes de facturacion",
-                "anio": "Año de facturacion",
-                "rut_empresa": "Rut de la empresa",
-                "nombre_empresa": "Nombre de la empresa"
-            })
-            columnas_mostrar = [
-                "ID cobro", "ID historial", "Numero vigente", "Folio", "Fecha en la que se paga",
-                "Horas extra", "Costo de horas extra", "Estado", "Cobro", "Mes de facturacion",
-                "Año de facturacion", "Rut de la empresa", "Nombre de la empresa"
-            ]
-            columnas_mostrar = [col for col in columnas_mostrar if col in cobros_folio.columns]
+                cobros_folio = cobros_folio[(cobros_folio["egreso_equipo"].isnull()) | (cobros_folio["egreso_equipo"] == 0)]
+            # Mostrar el DataFrame filtrado para depuración
             st.write("Cobros encontrados para este folio:")
-            st.dataframe(cobros_folio[columnas_mostrar] if columnas_mostrar else cobros_folio, use_container_width=True)
+            st.dataframe(cobros_folio, use_container_width=True)
             if not cobros_folio.empty:
-                if "ID cobro" not in cobros_folio.columns:
-                    st.error("No se encontró la columna 'ID cobro' en los cobros. Revisa la estructura de la tabla.")
+                # Crear opciones de selección por mes y año, asegurando unicidad por año y mes
+                if "id_cobros" not in cobros_folio.columns:
+                    st.error("No se encontró la columna 'id_cobros' en los cobros. Revisa la estructura de la tabla.")
                 else:
                     opciones_cobro = [
-                        f"Mes: {row['Mes de facturacion']:02d} / Año: {row['Año de facturacion']} - ID: {row['ID cobro']}"
-                        for _, row in cobros_folio.sort_values(['Año de facturacion','Mes de facturacion']).iterrows()
+                        f"Mes: {row['mes']:02d} / Año: {row['anio']} - ID: {row['id_cobros']}"
+                        for _, row in cobros_folio.sort_values(['anio','mes']).iterrows()
                     ]
                     if opciones_cobro:
                         seleccion_cobro = st.selectbox("Seleccione el mes y año del cobro a editar", opciones_cobro)
+                        # Extraer id_cobros, mes y año del string seleccionado
                         id_cobros_seleccionado = int(seleccion_cobro.split("ID: ")[1])
-                        cobro_seleccionado = cobros_folio[cobros_folio["ID cobro"] == id_cobros_seleccionado].iloc[0]
+                        cobro_seleccionado = cobros_folio[cobros_folio["id_cobros"] == id_cobros_seleccionado].iloc[0]
+
                         contrato_seleccionado = df_contratos[df_contratos["folio"] == int(folio_seleccionado)].iloc[0]
-                        equipo_actual = cobro_seleccionado["Numero vigente"]
+                        equipo_actual = cobro_seleccionado["numero_vigente"]
                         precio_mensual = contrato_seleccionado["precio_mensual"]
                         precio_envio = contrato_seleccionado["precio_envio"]
                         st.write(f"Contrato seleccionado: Folio {contrato_seleccionado['folio']}, Empresa: {contrato_seleccionado['rut_empresa']}, Nombre: {contrato_seleccionado['nombre_empresa']}")
                         st.info(f"Monto pactado mensual: ${precio_mensual:,.0f}")
                         st.write(f"Equipo del pago: {equipo_actual}")
+
+                        # Calcular fecha de facturación (día 25 del mes actual o siguiente si ya pasó)
+                        import datetime
                         hoy = datetime.date.today()
                         if hoy.day <= 25:
                             fecha_facturacion = hoy.replace(day=25)
                         else:
+                            # Si ya pasó el 25, siguiente mes
                             if hoy.month == 12:
                                 fecha_facturacion = hoy.replace(year=hoy.year+1, month=1, day=25)
                             else:
-                                fecha_facturacion = hoy.replace(month=hoy.month+1, day=25)
-                        fecha_pago = st.date_input("Fecha en la que se realiza el pago (cuando paga el cliente)", value=cobro_seleccionado["Fecha en la que se paga"])
-                        horas_extra = st.number_input("Horas extra de uso", min_value=0, step=1, value=int(cobro_seleccionado["Horas extra"]))
-                        costo_hora_extra = st.number_input("Costo por horas extra", min_value=0, step=1000, value=int(cobro_seleccionado["Costo de horas extra"]))
-                        estado = st.selectbox("Estado del cobro", ["Pendiente", "Pagado"], index=1 if cobro_seleccionado["Estado"] == 2 else 0)
+                                # No se requiere acción adicional aquí, solo para evitar error de indentación
+                                pass
+                        
+                        fecha_pago = st.date_input("Fecha en la que se realiza el pago (cuando paga el cliente)", value=cobro_seleccionado["fecha_pago"])
+                        horas_extra = st.number_input("Horas extra de uso", min_value=0, step=1, value=int(cobro_seleccionado["horas_extra"]))
+                        costo_hora_extra = st.number_input("Costo por horas extra", min_value=0, step=1000, value=int(cobro_seleccionado["costo_hora_extra"]))
+                        estado = st.selectbox("Estado del cobro", ["Pendiente", "Pagado"], index=1 if cobro_seleccionado["estado"] == 2 else 0)
+                        # Calcular el monto del cobro
                         monto_cobro = precio_mensual
-                        cobros_ordenados = cobros_folio.sort_values(["Año de facturacion", "Mes de facturacion"]).reset_index(drop=True)
+                        # Identificar el primer cobro del contrato (primer mes)
+                        cobros_ordenados = cobros_folio.sort_values(["anio", "mes"]).reset_index(drop=True)
                         es_primer_mes = False
                         if not cobros_ordenados.empty:
                             primer_cobro = cobros_ordenados.iloc[0]
                             if (
-                                cobro_seleccionado["Mes de facturacion"] == primer_cobro["Mes de facturacion"]
-                                and cobro_seleccionado["Año de facturacion"] == primer_cobro["Año de facturacion"]
+                                cobro_seleccionado["mes"] == primer_cobro["mes"]
+                                and cobro_seleccionado["anio"] == primer_cobro["anio"]
                             ):
                                 es_primer_mes = True
                         if es_primer_mes:
                             monto_cobro += precio_envio
                         st.success(f"El monto sin contar horas extra es: ${monto_cobro:,.0f} (incluye envío solo en el primer mes)")
                         monto_cobro += horas_extra * costo_hora_extra
+
                         with st.form("form_editar_cobro"):
                             st.success(f"El monto total del cobro es: ${monto_cobro:,.0f}")
                             submit_button = st.form_submit_button("Guardar Cambios")
                             eliminar_button = st.form_submit_button("Eliminar Cobro")
                             confirmacion = st.checkbox("CONFIRMAR ELIMINACIÓN")
                         if submit_button:
+                            # Actualizar cobro
                             with engine.begin() as conn:
                                 conn.execute(text("""
                                     UPDATE cobros
@@ -1682,16 +1421,18 @@ elif menu == "Cobros":
                                     "costo_hora_extra": int(costo_hora_extra),
                                     "cobro": int(monto_cobro),
                                     "estado": 2 if estado == "Pagado" else 1,
-                                    "mes": int(cobro_seleccionado["Mes de facturacion"]),
-                                    "anio": int(cobro_seleccionado["Año de facturacion"]),
+                                    "mes": int(cobro_seleccionado["mes"]),
+                                    "anio": int(cobro_seleccionado["anio"]),
                                     "id_cobros": id_cobros_seleccionado
                                 })
                             st.success(f"✅ Cobro de ${int(monto_cobro):,.0f} actualizado exitosamente.")
                         if eliminar_button:
                             if confirmacion:
                                 with engine.begin() as conn:
+                                    # Eliminar el cobro seleccionado
                                     conn.execute(text("DELETE FROM cobros WHERE id_cobros = :id_cobros"), {"id_cobros": id_cobros_seleccionado})
                                     st.warning("✅ Cobro eliminado exitosamente.")
+
                     else:
                         st.warning("No hay opciones de cobro para mostrar.")
             else:
