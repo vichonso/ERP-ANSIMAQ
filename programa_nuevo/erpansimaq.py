@@ -72,30 +72,30 @@ menu = st.sidebar.radio("Menú", [
 ])
 
 if menu == "Inicio":
-    st.title("💼 Bienvenido a Ansimaq")
+    st.title("💼 Dashboard Ansimaq")
     st.markdown("## 🛠️ Resumen general")
 
     # --- Cargar datos
     df_equipos = cargar_equipos()
     df_cobros = cargar_cobros()
+    df_contratos = cargar_contratos()
+    df_clientes = cargar_clientes() if 'cargar_clientes' in globals() else None
 
-    # --- Generadores disponibles
-    generadores_disponibles = df_equipos[df_equipos["estado"] == 1]  # Estado 1 = disponible
+    # --- Métricas principales
+    generadores_disponibles = df_equipos[df_equipos["estado"] == 1]
     total_generadores = len(generadores_disponibles)
-
-    # --- Pagos pendientes (ajusta según tu tabla)
-    if "pagado" in df_cobros.columns:
-        pagos_pendientes = df_cobros[df_cobros["pagado"] == False]
-    else:
-        pagos_pendientes = df_cobros  # Si no hay campo, muestra todos
-
+    pagos_pendientes = df_cobros[df_cobros["estado"] == 1] if "estado" in df_cobros.columns else df_cobros
     total_pagos = len(pagos_pendientes)
-    monto_total = pagos_pendientes["monto"].sum() if "monto" in pagos_pendientes.columns else 0
+    monto_total = pagos_pendientes["cobro"].sum() if "cobro" in pagos_pendientes.columns else 0
+    ingresos_totales = df_cobros["cobro"].sum() if "cobro" in df_cobros.columns else 0
+    egresos_totales = df_cobros["egreso_equipo"].sum() if "egreso_equipo" in df_cobros.columns else 0
+    utilidad_total = ingresos_totales - egresos_totales
 
-    # --- Mostrar métricas principales
-    col1, col2 = st.columns(2)
-    col1.metric("🔋 Generadores disponibles", total_generadores)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("🔋 Equipos disponibles", total_generadores)
     col2.metric("💰 Pagos pendientes", f"{total_pagos} pagos - ${monto_total:,.0f}")
+    col3.metric("📈 Ingresos totales", f"${ingresos_totales:,.0f}")
+    col4.metric("📉 Utilidad neta", f"${utilidad_total:,.0f}")
 
     st.markdown("---")
     st.subheader("🔋 Detalle de generadores disponibles")
@@ -109,13 +109,148 @@ if menu == "Inicio":
 
     st.markdown("---")
     st.subheader("📄 Detalle de pagos pendientes")
-    if total_pagos > 0:
+    if total_pagos > 0 and all(col in pagos_pendientes.columns for col in ["folio", "cobro", "fecha_pago", "mes", "anio"]):
+        df_pagos = pagos_pendientes.copy()
+        # Calcular fecha de facturación (día 25 de cada mes/año)
+        df_pagos["fecha_facturacion"] = pd.to_datetime({
+            "year": df_pagos["anio"],
+            "month": df_pagos["mes"],
+            "day": 25
+        }, errors="coerce")
+        # Renombrar columna para mostrar como "fecha en la que se pagará"
+        df_pagos = df_pagos.rename(columns={"fecha_pago": "fecha en la que se pagará"})
         st.dataframe(
-            pagos_pendientes[["cliente", "monto", "fecha_limite"]],
+            df_pagos[["folio", "cobro", "fecha_facturacion", "fecha en la que se pagará"]],
             use_container_width=True
         )
     else:
         st.success("No hay pagos pendientes. ¡Todo está al día!")
+
+    st.markdown("---")
+    st.subheader("🏆 Top Equipos por Utilidad")
+    if "numero_vigente" in df_cobros.columns and "cobro" in df_cobros.columns:
+        utilidad_por_equipo = df_cobros.groupby("numero_vigente").agg(
+            ingreso=("cobro", "sum"),
+            egreso=("egreso_equipo", "sum") if "egreso_equipo" in df_cobros.columns else (lambda x: 0),
+        )
+        utilidad_por_equipo["utilidad"] = utilidad_por_equipo["ingreso"] - utilidad_por_equipo["egreso"]
+        top_equipos = utilidad_por_equipo.sort_values("utilidad", ascending=False).head(5)
+        low_equipos = utilidad_por_equipo.sort_values("utilidad", ascending=True).head(5)
+        st.write("### 🔝 Equipos con mayor utilidad")
+        st.dataframe(top_equipos)
+        st.write("### 🔻 Equipos con menor utilidad")
+        st.dataframe(low_equipos)
+        st.bar_chart(utilidad_por_equipo["utilidad"])
+    else:
+        st.info("No hay datos suficientes para mostrar ranking de utilidad.")
+
+    st.markdown("---")
+    st.subheader("🔍 Análisis por Equipo")
+    equipos_lista = df_equipos["numero_vigente"].unique().tolist()
+    equipo_sel = st.selectbox("Seleccione un equipo", equipos_lista)
+    df_cobros_equipo = df_cobros[df_cobros["numero_vigente"] == equipo_sel]
+    if not df_cobros_equipo.empty:
+        # Asegurar que la columna 'egreso_equipo' exista
+        if "egreso_equipo" not in df_cobros_equipo.columns:
+            df_cobros_equipo["egreso_equipo"] = 0
+        resumen_equipo = df_cobros_equipo.groupby(["anio", "mes"]).agg(
+            ingreso=("cobro", "sum"),
+            egreso=("egreso_equipo", "sum"),
+        )
+        resumen_equipo["utilidad"] = resumen_equipo["ingreso"] - resumen_equipo["egreso"]
+        resumen_equipo = resumen_equipo.reset_index()  # Fix for MultiIndex KeyError in line_chart
+        st.write("#### Resumen mensual")
+        st.dataframe(resumen_equipo)
+        st.line_chart(resumen_equipo[["ingreso", "egreso", "utilidad"]])
+        st.write(f"**Total Ingreso:** ${resumen_equipo['ingreso'].sum():,.0f}")
+        st.write(f"**Total Egreso:** ${resumen_equipo['egreso'].sum():,.0f}")
+        st.write(f"**Utilidad Total:** ${resumen_equipo['utilidad'].sum():,.0f}")
+    else:
+        st.info("No hay cobros registrados para este equipo.")
+
+    st.markdown("---")
+    st.subheader("📑 Análisis por Contrato")
+    # Filtro de vigencia antes de seleccionar folio
+    hoy = pd.Timestamp.today().date()
+    # Convertir columnas a tipo fecha si no lo son y comparar como date
+    if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_inicio_contrato"]):
+        df_contratos["fecha_inicio_contrato"] = pd.to_datetime(df_contratos["fecha_inicio_contrato"], errors="coerce")
+    if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_termino_contrato"]):
+        df_contratos["fecha_termino_contrato"] = pd.to_datetime(df_contratos["fecha_termino_contrato"], errors="coerce")
+    df_contratos["vigente"] = (
+        df_contratos["fecha_inicio_contrato"].dt.date <= hoy
+    ) & (
+        df_contratos["fecha_termino_contrato"].dt.date >= hoy
+    )
+    filtro_vigencia = st.radio("Filtrar por contratos", ["Vigentes", "No vigentes"], horizontal=True)
+    if filtro_vigencia == "Vigentes":
+        folios_filtrados = df_contratos[df_contratos["vigente"]]["folio"].tolist()
+    else:
+        folios_filtrados = df_contratos[~df_contratos["vigente"]]["folio"].tolist()
+    if folios_filtrados:
+        contrato_sel = st.selectbox("Seleccione un contrato", folios_filtrados)
+        df_cobros_contrato = df_cobros[df_cobros["folio"] == contrato_sel]
+        if not df_cobros_contrato.empty:
+            # Asegurar que la columna 'egreso_equipo' exista
+            if "egreso_equipo" not in df_cobros_contrato.columns:
+                df_cobros_contrato["egreso_equipo"] = 0
+            resumen_contrato = df_cobros_contrato.groupby(["anio", "mes"]).agg(
+                ingreso=("cobro", "sum"),
+                egreso=("egreso_equipo", "sum"),
+            )
+            resumen_contrato["utilidad"] = resumen_contrato["ingreso"] - resumen_contrato["egreso"]
+            resumen_contrato = resumen_contrato.reset_index()  # Fix for MultiIndex KeyError in line_chart
+            st.write("#### Resumen mensual")
+            st.dataframe(resumen_contrato)
+            st.line_chart(resumen_contrato[["ingreso", "egreso", "utilidad"]])
+            st.write(f"**Total Ingreso:** ${resumen_contrato['ingreso'].sum():,.0f}")
+            st.write(f"**Total Egreso:** ${resumen_contrato['egreso'].sum():,.0f}")
+            st.write(f"**Utilidad Total:** ${resumen_contrato['utilidad'].sum():,.0f}")
+        else:
+            st.info("No hay cobros registrados para este contrato.")
+    else:
+        st.info("No hay contratos para el filtro seleccionado.")
+
+    st.markdown("---")
+    st.subheader("📊 Tendencia global de ingresos y egresos")
+    if "anio" in df_cobros.columns and "mes" in df_cobros.columns:
+        # Asegurar que la columna 'egreso_equipo' exista
+        if "egreso_equipo" not in df_cobros.columns:
+            df_cobros["egreso_equipo"] = 0
+        tendencia = df_cobros.groupby(["anio", "mes"]).agg(
+            ingreso=("cobro", "sum"),
+            egreso=("egreso_equipo", "sum"),
+        )
+        tendencia["utilidad"] = tendencia["ingreso"] - tendencia["egreso"]
+        tendencia = tendencia.reset_index()  # Fix for MultiIndex KeyError in line_chart
+        st.line_chart(tendencia[["ingreso", "egreso", "utilidad"]])
+    else:
+        st.info("No hay datos de fechas para mostrar tendencia.")
+
+    st.markdown("---")
+    st.subheader("🚨 Alertas y sugerencias")
+    equipos_sin_contrato = set(df_equipos["numero_vigente"]) - set(df_cobros["numero_vigente"])
+    if equipos_sin_contrato:
+        st.warning(f"Equipos sin contrato: {', '.join(map(str, equipos_sin_contrato))}")
+    contratos_por_vencer = df_contratos[df_contratos["fecha_termino_contrato"] < pd.Timestamp.today() + pd.Timedelta(days=30)]
+    if not contratos_por_vencer.empty:
+        st.warning(f"Contratos por vencer en los próximos 30 días: {len(contratos_por_vencer)}")
+    pagos_atrasados = df_cobros[(df_cobros["estado"] == 1) & (df_cobros["fecha_pago"] < pd.Timestamp.today())] if "estado" in df_cobros.columns and "fecha_pago" in df_cobros.columns else None
+    if pagos_atrasados is not None and not pagos_atrasados.empty:
+        st.error(f"Pagos atrasados: {len(pagos_atrasados)}")
+
+    # Ranking de clientes por ingresos generados
+    st.markdown("---")
+    st.subheader("👥 Ranking de clientes por ingresos generados")
+    if df_clientes is not None and "rut_empresa" in df_clientes.columns and "folio" in df_cobros.columns:
+        ingresos_por_cliente = df_cobros.merge(df_contratos[["folio", "rut_empresa"]], on="folio", how="left")
+        ranking_clientes = ingresos_por_cliente.groupby("rut_empresa").agg(ingresos=("cobro", "sum")).sort_values("ingresos", ascending=False)
+        ranking_clientes = ranking_clientes.merge(df_clientes[["rut_empresa", "nombre_empresa"]], on="rut_empresa", how="left")
+        st.dataframe(ranking_clientes[["nombre_empresa", "ingresos"]])
+    else:
+        st.info("No hay datos suficientes para mostrar ranking de clientes.")
+
+    # Puedes agregar más secciones según tus necesidades
 
 
 elif menu == "Equipos": 
