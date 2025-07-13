@@ -483,16 +483,33 @@ elif menu == "Contratos":
     if opcion == "Ver Contratos":
         st.subheader("Lista de Contratos")
         df_contratos = cargar_contratos()
-        
+        # Filtro de vigencia
+        hoy = pd.Timestamp.today().date()
+        if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_inicio_contrato"]):
+            df_contratos["fecha_inicio_contrato"] = pd.to_datetime(df_contratos["fecha_inicio_contrato"], errors="coerce")
+        if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_termino_contrato"]):
+            df_contratos["fecha_termino_contrato"] = pd.to_datetime(df_contratos["fecha_termino_contrato"], errors="coerce")
+        df_contratos["vigente"] = (
+            df_contratos["fecha_inicio_contrato"].dt.date <= hoy
+        ) & (
+            df_contratos["fecha_termino_contrato"].dt.date >= hoy
+        )
+        filtro_vigencia = st.radio("Filtrar por contratos", ["Vigentes", "No vigentes", "Todos"], horizontal=True)
+        if filtro_vigencia == "Vigentes":
+            df_contratos_filtrados = df_contratos[df_contratos["vigente"]]
+        elif filtro_vigencia == "No vigentes":
+            df_contratos_filtrados = df_contratos[~df_contratos["vigente"]]
+        else:
+            df_contratos_filtrados = df_contratos
         busqueda = st.text_input(label="Nombre de empresa o RUT, Nombre del representante")
         if busqueda:
-            df_contratos = df_contratos[
-                df_contratos["rut_empresa"].str.contains(busqueda, case=False, na=False) |
-                df_contratos["nombre_representante"].str.contains(busqueda, case=False, na=False) |
-                df_contratos["nombre_empresa"].str.contains(busqueda, case=False, na=False) |
-                df_contratos["rut_representante"].str.contains(busqueda, case=False, na=False)
+            df_contratos_filtrados = df_contratos_filtrados[
+                df_contratos_filtrados["rut_empresa"].str.contains(busqueda, case=False, na=False) |
+                df_contratos_filtrados["nombre_representante"].str.contains(busqueda, case=False, na=False) |
+                df_contratos_filtrados["nombre_empresa"].str.contains(busqueda, case=False, na=False) |
+                df_contratos_filtrados["rut_representante"].str.contains(busqueda, case=False, na=False)
             ]
-        st.dataframe(df_contratos)
+        st.dataframe(df_contratos_filtrados)
 
     elif opcion == "Agregar Contrato":
         st.subheader("Agregar Nuevo Contrato")
@@ -584,126 +601,144 @@ elif menu == "Contratos":
         df_clientes = cargar_clientes()
         df_equipos = cargar_equipos()
         df_historial = cargar_historial_contrato()
+        # Filtro de vigencia antes de seleccionar folio
+        hoy = pd.Timestamp.today().date()
+        if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_inicio_contrato"]):
+            df_contratos["fecha_inicio_contrato"] = pd.to_datetime(df_contratos["fecha_inicio_contrato"], errors="coerce")
+        if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_termino_contrato"]):
+            df_contratos["fecha_termino_contrato"] = pd.to_datetime(df_contratos["fecha_termino_contrato"], errors="coerce")
+        df_contratos["vigente"] = (
+            df_contratos["fecha_inicio_contrato"].dt.date <= hoy
+        ) & (
+            df_contratos["fecha_termino_contrato"].dt.date >= hoy
+        )
+        filtro_vigencia = st.radio("Filtrar por contratos", ["Vigentes", "No vigentes", "Todos"], horizontal=True)
+        if filtro_vigencia == "Vigentes":
+            df_contratos_filtrados = df_contratos[df_contratos["vigente"]]
+        elif filtro_vigencia == "No vigentes":
+            df_contratos_filtrados = df_contratos[~df_contratos["vigente"]]
+        else:
+            df_contratos_filtrados = df_contratos
+        folios_disponibles = df_contratos_filtrados["folio"].unique()
+        if len(folios_disponibles) == 0:
+            st.info("No hay contratos para el filtro seleccionado.")
+        else:
+            folio_seleccionado = st.selectbox("Seleccione el folio del contrato a modificar", folios_disponibles)
+            contrato_seleccionado = df_contratos[df_contratos["folio"] == folio_seleccionado].iloc[0]
+            historial_inicial = obtener_historial_inicial(folio_seleccionado)
 
-        folio_seleccionado = st.selectbox("Seleccione el folio del contrato a modificar", df_contratos["folio"].unique())
-        contrato_seleccionado = df_contratos[df_contratos["folio"] == folio_seleccionado].iloc[0]
-        historial_inicial = obtener_historial_inicial(folio_seleccionado)
+            with st.form("form_editar_contrato"):
+                folio = st.text_input("Folio del contrato", value=str(contrato_seleccionado["folio"]))
+                if folio != str(contrato_seleccionado["folio"]) and folio in df_contratos["folio"].astype(str).values:
+                    st.error("El folio ya existe.")
 
-
-        with st.form("form_editar_contrato"):
-            folio = st.text_input("Folio del contrato", value=str(contrato_seleccionado["folio"]))
-            if folio != str(contrato_seleccionado["folio"]) and folio in df_contratos["folio"].astype(str).values:
-                st.error("El folio ya existe.")
-
-            rut_empresa = st.selectbox("Seleccione el RUT de la empresa", df_clientes["rut_empresa"].unique(), index=df_clientes["rut_empresa"].tolist().index(contrato_seleccionado["rut_empresa"]))
-            cliente_seleccionado = df_clientes[df_clientes["rut_empresa"] == rut_empresa].iloc[0]
-            st.write(f"Nombre de la empresa: {cliente_seleccionado['nombre_empresa']}")
-            st.write(f"Rut del representante: {cliente_seleccionado['rut_representante']}")
-            st.write(f"Nombre del representante: {cliente_seleccionado['nombre_representante']}")
-            st.write(f"Obra: {cliente_seleccionado['obra']}")
-            precio_nuevo = st.number_input("Precio mensual", value=contrato_seleccionado["precio_mensual"], min_value=0, step=1000)
-            horas_contratadas = st.number_input("Horas contratadas", value=contrato_seleccionado["horas_contrtadas"], min_value=0, step=1)
-            precio_envio = st.number_input("Precio de envío", value=contrato_seleccionado["precio_envio"], min_value=0, step=1000)
-            fecha_inicio = st.date_input("Fecha de inicio del contrato", value=contrato_seleccionado["fecha_inicio_contrato"])
-            indefinido = st.checkbox("Contrato a plazo indefinido", value=contrato_seleccionado["fecha_termino_contrato"] == pd.to_datetime("2099-12-31"))
-            if indefinido:
-                fecha_termino = pd.to_datetime("2099-12-31")
-            else:
-                fecha_termino = st.date_input("Fecha de término del contrato", value=contrato_seleccionado["fecha_termino_contrato"])
-            egreso_arriendo = st.number_input("Egreso de arriendo acumulado", value=contrato_seleccionado["egreso_arriendo"], min_value=0, step=1000)
-            
-            # Equipos disponibles para edición: los disponibles o el que ya tiene el contrato
-            equipo_actual = historial_inicial["numero_vigente"].iloc[0] if not historial_inicial.empty else None
-            # Solo mostrar equipos disponibles o el actual (si existe)
-            equipos_disponibles = df_equipos[df_equipos["estado"] == 1]["numero_vigente"].tolist()
-            disponibles= equipos_disponibles + [equipo_actual] if equipo_actual else equipos_disponibles
-            equipo_inicial = st.selectbox("Seleccione el equipo con el que inicia el contrato",
-                                           options=disponibles,
-                                           index=disponibles.index(equipo_actual) if equipo_actual in disponibles else 0)
-            horometro = st.number_input("Horómetro inicial (horas)", value=historial_inicial["horometro"].iloc[0] if not historial_inicial.empty else 0, min_value=0, step=1)
-
-            submit_button = st.form_submit_button("Guardar Cambios")
-            eliminar_button = st.form_submit_button("Eliminar Contrato")
-            confirmacion = st.checkbox("CONFIRMAR ELIMINACIÓN")
-            if submit_button:
-                if not folio or not rut_empresa:
-                    st.error("El folio y el RUT de la empresa son obligatorios.")
-                elif folio != str(contrato_seleccionado["folio"]) and folio in df_contratos["folio"].astype(str).values:
-                    st.error("El folio ya existe. Por favor, ingrese uno diferente.")
+                rut_empresa = st.selectbox("Seleccione el RUT de la empresa", df_clientes["rut_empresa"].unique(), index=df_clientes["rut_empresa"].tolist().index(contrato_seleccionado["rut_empresa"]))
+                cliente_seleccionado = df_clientes[df_clientes["rut_empresa"] == rut_empresa].iloc[0]
+                st.write(f"Nombre de la empresa: {cliente_seleccionado['nombre_empresa']}")
+                st.write(f"Rut del representante: {cliente_seleccionado['rut_representante']}")
+                st.write(f"Nombre del representante: {cliente_seleccionado['nombre_representante']}")
+                st.write(f"Obra: {cliente_seleccionado['obra']}")
+                precio_nuevo = st.number_input("Precio mensual", value=contrato_seleccionado["precio_mensual"], min_value=0, step=1000)
+                horas_contratadas = st.number_input("Horas contratadas", value=contrato_seleccionado["horas_contrtadas"], min_value=0, step=1)
+                precio_envio = st.number_input("Precio de envío", value=contrato_seleccionado["precio_envio"], min_value=0, step=1000)
+                fecha_inicio = st.date_input("Fecha de inicio del contrato", value=contrato_seleccionado["fecha_inicio_contrato"])
+                indefinido = st.checkbox("Contrato a plazo indefinido", value=contrato_seleccionado["fecha_termino_contrato"] == pd.to_datetime("2099-12-31"))
+                if indefinido:
+                    fecha_termino = pd.to_datetime("2099-12-31")
                 else:
-                    with engine.begin() as conn:
-                        conn.execute(text("""
-                            UPDATE contrato
-                            SET folio = :folio, rut_empresa = :rut_empresa, precio_mensual = :precio_mensual, 
-                                horas_contrtadas = :horas_contratadas, fecha_inicio_contrato = :fecha_inicio_contrato, 
-                                fecha_termino_contrato = :fecha_termino_contrato, egreso_arriendo = :egreso_arriendo, 
-                                precio_envio = :precio_envio
-                            WHERE folio = :folio_seleccionado
-                        """), {
-                            "folio": int(folio),
-                            "rut_empresa": rut_empresa,
-                            "precio_mensual": precio_nuevo,
-                            "horas_contratadas": horas_contratadas,
-                            "fecha_inicio_contrato": fecha_inicio,
-                            "fecha_termino_contrato": fecha_termino,
-                            "egreso_arriendo": egreso_arriendo,
-                            "precio_envio": precio_envio,
-                            "folio_seleccionado": folio_seleccionado
-                        })
-                        # Actualizar historial inicial (no crear uno nuevo)
-                        if not historial_inicial.empty:
-                            id_historial = int(historial_inicial["id_historial"].iloc[0])
+                    fecha_termino = st.date_input("Fecha de término del contrato", value=contrato_seleccionado["fecha_termino_contrato"])
+                egreso_arriendo = st.number_input("Egreso de arriendo acumulado", value=contrato_seleccionado["egreso_arriendo"], min_value=0, step=1000)
+                # Equipos disponibles para edición: los disponibles o el que ya tiene el contrato
+                equipo_actual = historial_inicial["numero_vigente"].iloc[0] if not historial_inicial.empty else None
+                equipos_disponibles = df_equipos[df_equipos["estado"] == 1]["numero_vigente"].tolist()
+                disponibles= equipos_disponibles + [equipo_actual] if equipo_actual else equipos_disponibles
+                equipo_inicial = st.selectbox("Seleccione el equipo con el que inicia el contrato",
+                                            options=disponibles,
+                                            index=disponibles.index(equipo_actual) if equipo_actual in disponibles else 0)
+                horometro = st.number_input("Horómetro inicial (horas)", value=historial_inicial["horometro"].iloc[0] if not historial_inicial.empty else 0, min_value=0, step=1)
+
+                submit_button = st.form_submit_button("Guardar Cambios")
+                eliminar_button = st.form_submit_button("Eliminar Contrato")
+                confirmacion = st.checkbox("CONFIRMAR ELIMINACIÓN")
+                if submit_button:
+                    if not folio or not rut_empresa:
+                        st.error("El folio y el RUT de la empresa son obligatorios.")
+                    elif folio != str(contrato_seleccionado["folio"]) and folio in df_contratos["folio"].astype(str).values:
+                        st.error("El folio ya existe. Por favor, ingrese uno diferente.")
+                    else:
+                        with engine.begin() as conn:
                             conn.execute(text("""
-                                UPDATE historial_contrato
-                                SET folio = :folio, numero_vigente = :numero_vigente, fecha_servicio = :fecha_servicio, horometro = :horometro
-                                WHERE id_historial = :id_historial
+                                UPDATE contrato
+                                SET folio = :folio, rut_empresa = :rut_empresa, precio_mensual = :precio_mensual, 
+                                    horas_contrtadas = :horas_contratadas, fecha_inicio_contrato = :fecha_inicio_contrato, 
+                                    fecha_termino_contrato = :fecha_termino_contrato, egreso_arriendo = :egreso_arriendo, 
+                                    precio_envio = :precio_envio
+                                WHERE folio = :folio_seleccionado
                             """), {
                                 "folio": int(folio),
-                                "numero_vigente": equipo_inicial,
-                                "fecha_servicio": fecha_inicio,
-                                "horometro": horometro,
-                                "id_historial": id_historial
+                                "rut_empresa": rut_empresa,
+                                "precio_mensual": precio_nuevo,
+                                "horas_contratadas": horas_contratadas,
+                                "fecha_inicio_contrato": fecha_inicio,
+                                "fecha_termino_contrato": fecha_termino,
+                                "egreso_arriendo": egreso_arriendo,
+                                "precio_envio": precio_envio,
+                                "folio_seleccionado": folio_seleccionado
                             })
-                        #actualizar el estado del equipo a "En arriendo" (estado 2)
-                        conn.execute(text("""update equipos
-                            set estado = 2
-                            where numero_vigente = :numero_vigente
-                        """), {
-                            "numero_vigente": equipo_inicial
-                        })
-                        #actualizar equipo anterior a "Disponible" (estado 1)
-                        if equipo_actual and equipo_actual != equipo_inicial:
-                            conn.execute(text("""
-                                UPDATE equipos
-                                SET estado = 1
-                                WHERE numero_vigente = :numero_vigente
+                            # Actualizar historial inicial (no crear uno nuevo)
+                            if not historial_inicial.empty:
+                                id_historial = int(historial_inicial["id_historial"].iloc[0])
+                                conn.execute(text("""
+                                    UPDATE historial_contrato
+                                    SET folio = :folio, numero_vigente = :numero_vigente, fecha_servicio = :fecha_servicio, horometro = :horometro
+                                    WHERE id_historial = :id_historial
+                                """), {
+                                    "folio": int(folio),
+                                    "numero_vigente": equipo_inicial,
+                                    "fecha_servicio": fecha_inicio,
+                                    "horometro": horometro,
+                                    "id_historial": id_historial
+                                })
+                            #actualizar el estado del equipo a "En arriendo" (estado 2)
+                            conn.execute(text("""update equipos
+                                set estado = 2
+                                where numero_vigente = :numero_vigente
                             """), {
-                                "numero_vigente": equipo_actual
+                                "numero_vigente": equipo_inicial
                             })
-                    st.success("✅ Contrato actualizado exitosamente.")
-            if eliminar_button:
-                if confirmacion:
-                    with engine.begin() as conn:
-                        # Eliminar el contrato y su historial
-                        conn.execute(text("""
-                            DELETE FROM contrato WHERE folio = :folio_seleccionado
-                        """), {
-                            "folio_seleccionado": folio_seleccionado
-                        })
-                        conn.execute(text("""
-                            DELETE FROM historial_contrato WHERE folio = :folio_seleccionado
-                        """), {
-                            "folio_seleccionado": folio_seleccionado
-                        })
-                        # Actualizar el estado del equipo a "Disponible" (estado 1)
-                        conn.execute(text("""
-                            UPDATE equipos SET estado = 1 WHERE numero_vigente = :numero_vigente
-                        """), {
-                            "numero_vigente": equipo_inicial
-                        })
-                    st.warning("✅ Contrato eliminado exitosamente.")
-                else:
-                    st.error("Para eliminar el contrato, debe confirmar la eliminación marcando la casilla.")
+                            #actualizar equipo anterior a "Disponible" (estado 1)
+                            if equipo_actual and equipo_actual != equipo_inicial:
+                                conn.execute(text("""
+                                    UPDATE equipos
+                                    SET estado = 1
+                                    WHERE numero_vigente = :numero_vigente
+                                """), {
+                                    "numero_vigente": equipo_actual
+                                })
+                        st.success("✅ Contrato actualizado exitosamente.")
+                if eliminar_button:
+                    if confirmacion:
+                        with engine.begin() as conn:
+                            # Eliminar el contrato y su historial
+                            conn.execute(text("""
+                                DELETE FROM contrato WHERE folio = :folio_seleccionado
+                            """), {
+                                "folio_seleccionado": folio_seleccionado
+                            })
+                            conn.execute(text("""
+                                DELETE FROM historial_contrato WHERE folio = :folio_seleccionado
+                            """), {
+                                "folio_seleccionado": folio_seleccionado
+                            })
+                            # Actualizar el estado del equipo a "Disponible" (estado 1)
+                            conn.execute(text("""
+                                UPDATE equipos SET estado = 1 WHERE numero_vigente = :numero_vigente
+                            """), {
+                                "numero_vigente": equipo_inicial
+                            })
+                        st.warning("✅ Contrato eliminado exitosamente.")
+                    else:
+                        st.error("Para eliminar el contrato, debe confirmar la eliminación marcando la casilla.")
 
 
 elif menu == "Historial de Contratos":
@@ -713,14 +748,33 @@ elif menu == "Historial de Contratos":
     if opcion == "Ver Historial":
         st.subheader("Historial de Contratos")
         df_historial = cargar_historial_contrato()
+        df_contratos = cargar_contratos()
         # Eliminar columnas duplicadas conservando la primera aparición
         df_historial = df_historial.loc[:, ~df_historial.columns.duplicated()]
-        # Obtener todos los folios únicos de contratos presentes en el historial de forma robusta
+        # Filtro de vigencia antes de seleccionar folio
+        hoy = pd.Timestamp.today().date()
+        if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_inicio_contrato"]):
+            df_contratos["fecha_inicio_contrato"] = pd.to_datetime(df_contratos["fecha_inicio_contrato"], errors="coerce")
+        if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_termino_contrato"]):
+            df_contratos["fecha_termino_contrato"] = pd.to_datetime(df_contratos["fecha_termino_contrato"], errors="coerce")
+        df_contratos["vigente"] = (
+            df_contratos["fecha_inicio_contrato"].dt.date <= hoy
+        ) & (
+            df_contratos["fecha_termino_contrato"].dt.date >= hoy
+        )
+        filtro_vigencia = st.radio("Filtrar por contratos", ["Vigentes", "No vigentes", "Todos"], horizontal=True)
+        if filtro_vigencia == "Vigentes":
+            folios_filtrados = df_contratos[df_contratos["vigente"]]["folio"].tolist()
+        elif filtro_vigencia == "No vigentes":
+            folios_filtrados = df_contratos[~df_contratos["vigente"]]["folio"].tolist()
+        else:
+            folios_filtrados = df_contratos["folio"].tolist()
+        # Obtener todos los folios únicos de contratos presentes en el historial y filtrados por vigencia
         if "folio" in df_historial.columns and not df_historial.empty:
             folio_col = df_historial["folio"]
             if isinstance(folio_col, pd.DataFrame):
                 folio_col = folio_col.iloc[:, 0]
-            folios_disponibles = folio_col.drop_duplicates().tolist()
+            folios_disponibles = [f for f in folio_col.drop_duplicates().tolist() if f in folios_filtrados]
         else:
             folios_disponibles = []
         if folios_disponibles:
@@ -732,7 +786,7 @@ elif menu == "Historial de Contratos":
             else:
                 st.warning("No hay servicios registrados para este folio de contrato.")
         else:
-            st.info("No hay historial de contratos registrado.")
+            st.info("No hay historial de contratos registrado para el filtro seleccionado.")
 
     elif opcion == "Agregar Registro al Historial":
         st.subheader("Agregar Registro al Historial de Contrato")
@@ -740,8 +794,26 @@ elif menu == "Historial de Contratos":
         df_equipos = cargar_equipos()
         df_historial = cargar_historial_contrato()
 
-        if "folio" in df_contratos.columns and not df_contratos.empty:
-            folios_disponibles = df_contratos["folio"].astype(str).tolist()
+        # Filtro de vigencia antes de seleccionar folio
+        hoy = pd.Timestamp.today().date()
+        if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_inicio_contrato"]):
+            df_contratos["fecha_inicio_contrato"] = pd.to_datetime(df_contratos["fecha_inicio_contrato"], errors="coerce")
+        if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_termino_contrato"]):
+            df_contratos["fecha_termino_contrato"] = pd.to_datetime(df_contratos["fecha_termino_contrato"], errors="coerce")
+        df_contratos["vigente"] = (
+            df_contratos["fecha_inicio_contrato"].dt.date <= hoy
+        ) & (
+            df_contratos["fecha_termino_contrato"].dt.date >= hoy
+        )
+        filtro_vigencia = st.radio("Filtrar por contratos", ["Vigentes", "No vigentes", "Todos"], horizontal=True)
+        if filtro_vigencia == "Vigentes":
+            df_contratos_filtrados = df_contratos[df_contratos["vigente"]]
+        elif filtro_vigencia == "No vigentes":
+            df_contratos_filtrados = df_contratos[~df_contratos["vigente"]]
+        else:
+            df_contratos_filtrados = df_contratos
+        if "folio" in df_contratos_filtrados.columns and not df_contratos_filtrados.empty:
+            folios_disponibles = df_contratos_filtrados["folio"].astype(str).tolist()
         else:
             folios_disponibles = []
         if folios_disponibles:
@@ -772,7 +844,6 @@ elif menu == "Historial de Contratos":
 
                 st.text("Si el tipo de servicio es Mantenimiento o Reparación, se agregará el costo del servicio.")
                 egreso_equipo = st.number_input("Costo del servicio (egreso)", min_value=0, step=1000, value=0)
-
 
                 submit_button = st.form_submit_button("Agregar Registro al Historial")
 
@@ -846,15 +917,36 @@ elif menu == "Historial de Contratos":
         df_contratos = cargar_contratos()
         df_equipos = cargar_equipos()
 
+        # Filtro de vigencia antes de seleccionar folio
+        hoy = pd.Timestamp.today().date()
+        if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_inicio_contrato"]):
+            df_contratos["fecha_inicio_contrato"] = pd.to_datetime(df_contratos["fecha_inicio_contrato"], errors="coerce")
+        if not pd.api.types.is_datetime64_any_dtype(df_contratos["fecha_termino_contrato"]):
+            df_contratos["fecha_termino_contrato"] = pd.to_datetime(df_contratos["fecha_termino_contrato"], errors="coerce")
+        df_contratos["vigente"] = (
+            df_contratos["fecha_inicio_contrato"].dt.date <= hoy
+        ) & (
+            df_contratos["fecha_termino_contrato"].dt.date >= hoy
+        )
+        filtro_vigencia = st.radio("Filtrar por contratos", ["Vigentes", "No vigentes", "Todos"], horizontal=True)
+        if filtro_vigencia == "Vigentes":
+            df_contratos_filtrados = df_contratos[df_contratos["vigente"]]
+        elif filtro_vigencia == "No vigentes":
+            df_contratos_filtrados = df_contratos[~df_contratos["vigente"]]
+        else:
+            df_contratos_filtrados = df_contratos
+
         # Eliminar columnas duplicadas antes de cualquier filtrado para evitar errores de pandas
         df_historial = df_historial.loc[:, ~df_historial.columns.duplicated()]
 
+        # Obtener folios disponibles según filtro de vigencia
         if "folio" in df_historial.columns and not df_historial.empty:
             folio_col = df_historial["folio"]
-            # Si por error es DataFrame (por join), tomar la primera columna
             if isinstance(folio_col, pd.DataFrame):
                 folio_col = folio_col.iloc[:, 0]
-            folios_disponibles = folio_col.drop_duplicates().astype(str).to_list()
+            # Solo folios que están en los contratos filtrados
+            folios_filtrados = df_contratos_filtrados["folio"].astype(str).tolist()
+            folios_disponibles = [str(f) for f in folio_col.drop_duplicates().astype(str).to_list() if str(f) in folios_filtrados]
         else:
             folios_disponibles = []
 
@@ -864,6 +956,8 @@ elif menu == "Historial de Contratos":
             df_historial = df_historial.loc[:, ~df_historial.columns.duplicated()]
             historial_folio = df_historial[df_historial["folio"] == int(folio_seleccionado)]
             if not historial_folio.empty:
+                st.info("Registros del historial para este folio:")
+                st.dataframe(historial_folio, use_container_width=True)
                 id_historial_seleccionado = st.selectbox("Seleccione el ID del registro a editar", historial_folio["id_historial"].tolist())
                 registro_seleccionado = historial_folio[historial_folio["id_historial"] == id_historial_seleccionado].iloc[0]
 
