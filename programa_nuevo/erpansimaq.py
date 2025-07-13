@@ -345,6 +345,8 @@ elif menu == "Equipos":
         estados_dict = {1: "Disponible", 2: "En arriendo", 3: "Mantenimiento", 4: "Averiado"}
         if "estado" in df_equipos.columns:
             df_equipos["estado"] = df_equipos["estado"].map(estados_dict).fillna(df_equipos["estado"])
+        else:
+            pass # Si no hay columna de estado, no hacer nada
 
         # Barra de búsqueda y filtro en la misma fila
         col1, col2 = st.columns([2, 1])
@@ -456,16 +458,16 @@ elif menu == "Clientes":
     if opcion == "Ver Clientes":
         st.subheader("Lista de Clientes")
         df_clientes = cargar_clientes()
-        
-        busqueda = st.text_input("Buscar por RUT o Nombre")
-        
+        busqueda = st.text_input("Buscar por nombre o RUT de la empresa")
+        df_filtrado = df_clientes.copy()
         if busqueda:
-            df_clientes = df_clientes[
-                df_clientes["rut"].str.contains(busqueda, case=False, na=False) |
-                df_clientes["nombre"].str.contains(busqueda, case=False, na=False)
+            df_filtrado = df_filtrado[
+                df_filtrado["nombre_empresa"].str.contains(busqueda, case=False, na=False) |
+                df_filtrado["rut_empresa"].str.contains(busqueda, case=False, na=False)
             ]
-        
-        st.dataframe(df_clientes)
+        # Resetear el índice para evitar errores de pandas al filtrar
+        df_filtrado = df_filtrado.reset_index(drop=True)
+        st.dataframe(df_filtrado)
     
     elif opcion == "Agregar Cliente":
         st.subheader("Agregar Nuevo Cliente")
@@ -1190,6 +1192,8 @@ elif menu == "Cobros":
         # Filtrar para mostrar solo contratos donde egreso_equipo es nulo o cero (no mostrar contratos de mantenciones/reparaciones)
         if "egreso_equipo" in df_cobros.columns:
             df_cobros = df_cobros[(df_cobros["egreso_equipo"].isnull()) | (df_cobros["egreso_equipo"] == 0)]
+        else:
+            df_cobros = df_cobros[df_cobros["egreso_equipo"].isnull()]
         # Determinar contratos vigentes y no vigentes
         import datetime
         hoy = datetime.date.today()
@@ -1211,7 +1215,7 @@ elif menu == "Cobros":
         else:
             st.info("No hay cobros registrados.")
         
-    if opcion == "Agregar Cobro":
+    elif opcion == "Agregar Cobro":
         st.subheader("Agregar Cobro")
         df_contratos = cargar_contratos()
         df_historial = cargar_historial_contrato()
@@ -1314,7 +1318,7 @@ elif menu == "Cobros":
                         })
                     st.success(f"✅ Cobro de ${int(monto_cobro):,.0f} agregado exitosamente.")
                             
-    if opcion == "Editar o Eliminar Cobro":
+    elif opcion == "Editar o Eliminar Cobro":
         st.subheader("Editar o Eliminar Cobro")
         df_cobros = cargar_cobros()
         df_contratos = cargar_contratos()
