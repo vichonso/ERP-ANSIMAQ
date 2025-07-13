@@ -1,0 +1,1 @@
+web: streamlit run erp.py --server.port=$PORT --server.enableCORS=false
