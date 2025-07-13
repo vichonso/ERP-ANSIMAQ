@@ -297,17 +297,35 @@ if menu == "Inicio":
     contratos_por_vencer = df_contratos[df_contratos["fecha_termino_contrato"] < pd.Timestamp.today() + pd.Timedelta(days=30)]
     if not contratos_por_vencer.empty:
         st.warning(f"Contratos por vencer en los próximos 30 días: {len(contratos_por_vencer)}")
-    pagos_atrasados = df_cobros[(df_cobros["estado"] == 1) & (df_cobros["fecha_pago"] < pd.Timestamp.today())] if "estado" in df_cobros.columns and "fecha_pago" in df_cobros.columns else None
+    # Corregir comparación de fechas: asegurar que 'fecha_pago' sea datetime
+    if "estado" in df_cobros.columns and "fecha_pago" in df_cobros.columns:
+        df_cobros["fecha_pago"] = pd.to_datetime(df_cobros["fecha_pago"], errors="coerce")
+        pagos_atrasados = df_cobros[(df_cobros["estado"] == 1) & (df_cobros["fecha_pago"] < pd.Timestamp.today())]
+    else:
+        pagos_atrasados = None
     if pagos_atrasados is not None and not pagos_atrasados.empty:
         st.error(f"Pagos atrasados: {len(pagos_atrasados)}")
 
     # Ranking de clientes por ingresos generados
     st.markdown("---")
     st.subheader("👥 Ranking de clientes por ingresos generados")
-    if df_clientes is not None and "rut_empresa" in df_clientes.columns and "folio" in df_cobros.columns:
-        ingresos_por_cliente = df_cobros.merge(df_contratos[["folio", "rut_empresa"]], on="folio", how="left")
-        ranking_clientes = ingresos_por_cliente.groupby("rut_empresa").agg(ingresos=("cobro", "sum")).sort_values("ingresos", ascending=False)
+    if (
+        df_clientes is not None and
+        "folio" in df_cobros.columns and
+        "folio" in df_contratos.columns and
+        "rut_empresa" in df_contratos.columns and
+        "nombre_empresa" in df_clientes.columns and
+        "cobro" in df_cobros.columns
+    ):
+        # Sumar ingresos por folio
+        ingresos_por_folio = df_cobros.groupby("folio").agg(ingresos=("cobro", "sum")).reset_index()
+        # Unir con contratos para obtener rut_empresa
+        ingresos_contrato = ingresos_por_folio.merge(df_contratos[["folio", "rut_empresa"]], on="folio", how="left")
+        # Sumar ingresos por rut_empresa
+        ranking_clientes = ingresos_contrato.groupby("rut_empresa").agg(ingresos=("ingresos", "sum")).reset_index()
+        # Unir con clientes para obtener nombre_empresa
         ranking_clientes = ranking_clientes.merge(df_clientes[["rut_empresa", "nombre_empresa"]], on="rut_empresa", how="left")
+        ranking_clientes = ranking_clientes.sort_values("ingresos", ascending=False)
         st.dataframe(ranking_clientes[["nombre_empresa", "ingresos"]])
     else:
         st.info("No hay datos suficientes para mostrar ranking de clientes.")
