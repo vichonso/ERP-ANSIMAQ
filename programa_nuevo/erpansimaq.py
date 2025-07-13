@@ -4,7 +4,69 @@ import plotly.express as px
 from sqlalchemy import text
 from sqlalchemy import create_engine
 
+
+# =============================
 # Configuración del tema de Streamlit
+# =============================
+st.set_page_config(
+    page_title="ERP Ansimaq",
+    page_icon="💼",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# CSS personalizado
+st.markdown(
+    """
+    <style>
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(120deg, #046205 0%, #4cbd49 100%);
+        color: #fff !important;
+    }
+    section[data-testid="stSidebar"] * {
+        color: #fff !important;
+    }
+    /* Botones */
+    button, .stButton>button {
+        background: linear-gradient(90deg, #046205 0%, #1976d2 100%);
+        color: #fff;
+        border-radius: 6px;
+        font-weight: 600;
+        border: none;
+        padding: 0.5em 1.2em;
+        transition: background 0.2s;
+    }
+    button:hover, .stButton>button:hover {
+        background: linear-gradient(90deg, #046205 0%, #3949ab 100%);
+        color: #fff;
+    }
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+        background: #e3e6f0;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #b0bec5;
+        border-radius: 8px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# --- CSS mínimo solo para adaptar al ancho de pantalla ---
+st.markdown("""
+<style>
+.stApp {
+    width: 100vw !important;
+    min-width: 100vw !important;
+    max-width: 100vw !important;
+    box-sizing: border-box;
+}
+</style>
+""", unsafe_allow_html=True)
 
 
 # Conexión a la base de datos PostgreSQL
