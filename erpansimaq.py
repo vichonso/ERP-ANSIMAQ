@@ -73,8 +73,10 @@ db_url = os.getenv("DATABASE_URL")  # Lee la variable de entorno de Render
 engine = create_engine(db_url)
 
 # Conexión a la base de datos PostgreSQL con datos de render
-engine = create_engine("postgresql+psycopg2://bdd_nqcs_user:Bt4Z23ApSCu2756uM4GWJUMYdfE3gbmQ@dpg-d1q292jipnbc738jeeb0-a.oregon-postgres.render.com/bdd_nqcs")
-
+db_url = os.getenv("DATABASE_URL")
+if not db_url:
+    raise ValueError("La variable de entorno DATABASE_URL no está definida.")
+engine = create_engine(db_url)
 
 
 # Funciones para cargar datos de las tablas principales
