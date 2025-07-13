@@ -1,4 +1,3 @@
-import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -69,14 +68,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-db_url = os.getenv("DATABASE_URL")  # Lee la variable de entorno de Render
-engine = create_engine(db_url)
 
-# Conexión a la base de datos PostgreSQL con datos de render
-db_url = os.getenv("DATABASE_URL")
-if not db_url:
-    raise ValueError("La variable de entorno DATABASE_URL no está definida.")
-engine = create_engine(db_url)
+# Conexión a la base de datos PostgreSQL
+engine = create_engine('postgresql+psycopg2://postgres:pc-database@localhost:5432/ansimaq_bdd')
 
 
 # Funciones para cargar datos de las tablas principales
