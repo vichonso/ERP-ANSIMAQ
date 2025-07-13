@@ -1,1 +1,1 @@
-web: streamlit run erp.py --server.port=$PORT --server.enableCORS=false
+web: streamlit run erpansimaq.py --server.port=$PORT --server.enableCORS=false
