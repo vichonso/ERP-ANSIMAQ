@@ -70,7 +70,7 @@ st.markdown("""
 
 
 # Conexión a la base de datos PostgreSQL
-engine = create_engine('postgresql+psycopg2://bdd_nqcs_user:Bt4Z23ApSCu2756uM4GWJUMYdfE3gbmQ@dpg-d1q292jipnbc738jeeb0-a.oregon-postgres.render.com/bdd_nqcs')
+engine = create_engine('postgresql://ansimaq:q2pym08aENTOfXZBoNc0uPXCSSOZJc4S@dpg-d1q8al6r433s73e3en4g-a.oregon-postgres.render.com/ansimaq')
 
 
 
