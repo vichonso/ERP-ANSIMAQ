@@ -70,7 +70,8 @@ st.markdown("""
 
 
 # Conexión a la base de datos PostgreSQL
-engine = create_engine('postgresql+psycopg2://postgres:pc-database@localhost:5432/ansimaq_bdd')
+engine = create_engine('postgresql+psycopg2://bdd_nqcs_user:Bt4Z23ApSCu2756uM4GWJUMYdfE3gbmQ@dpg-d1q292jipnbc738jeeb0-a.oregon-postgres.render.com/bdd_nqcs')
+
 
 
 # Funciones para cargar datos de las tablas principales
