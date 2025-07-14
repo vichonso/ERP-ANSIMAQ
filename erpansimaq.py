@@ -508,55 +508,61 @@ elif menu == "Clientes":
     elif opcion == "Editar o Eliminar Cliente":
         st.subheader("Editar o Eliminar Cliente")
         df_clientes = cargar_clientes()
-        rut_seleccionado = st.selectbox("Seleccione el RUT del cliente a modificar", df_clientes["rut_empresa"].unique())
-        g = df_clientes[df_clientes["rut_empresa"] == rut_seleccionado].iloc[0]
-        
-        with st.form("form_editar_cliente"):
-            nuevo_rut = st.text_input("RUT de la empresa", value=g["rut_empresa"], placeholder="Sin puntos Ej: 123456789-K")
-            nombre = st.text_input("Nombre de la empresa", value=g["nombre_empresa"])
-            obra = st.text_input("Obra", value=g["obra"])
-            nombre_representante = st.text_input("Nombre del Representante", value=g["nombre_representante"])
-            rut_representante = st.text_input("RUT del Representante", value=g["rut_representante"], placeholder="Sin puntos Ej: 123456789-K")
-            email = st.text_input("Email del Cliente", value=g["correo"], placeholder="correo@email.com")
-            telefono = st.text_input("Teléfono del Cliente", value=g["telefono"], placeholder="sin espacios ni caracteres Ej: 912345678")
-            editar_button = st.form_submit_button("Guardar Cambios")
-            if editar_button:
-                if not nuevo_rut or not nombre:
-                    st.error("El RUT y el nombre son obligatorios.")
-                elif nuevo_rut != rut_seleccionado and nuevo_rut in df_clientes["rut_empresa"].values:
-                    st.error("El RUT ya existe. Por favor, ingrese uno diferente.")
-                else:
-                    with engine.begin() as conn:
-                        conn.execute(text("""
-                            UPDATE clientes
-                            SET rut_empresa = :nuevo_rut, nombre_empresa = :nombre, obra = :obra, 
-                                nombre_representante = :nombre_representante, rut_representante = :rut_representante, 
-                                correo = :correo, telefono = :telefono
-                            WHERE rut_empresa = :rut_seleccionado
-                        """), {
-                            "nuevo_rut": nuevo_rut,
-                            "nombre": nombre,
-                            "obra": obra,
-                            "nombre_representante": nombre_representante,
-                            "rut_representante": rut_representante,
-                            "correo": email,
-                            "telefono": telefono if telefono else None,
-                            "rut_seleccionado": rut_seleccionado
-                        })
-                    st.success("✅ Cliente actualizado exitosamente.")
-            eliminar_button = st.form_submit_button("Eliminar Cliente")
-            if eliminar_button:
-                confirmacion = st.checkbox("CONFIRMAR ELIMINACIÓN")
-                if confirmacion:
-                    with engine.begin() as conn:
-                        conn.execute(text("""
-                            DELETE FROM clientes WHERE rut_empresa = :rut_seleccionado
-                        """), {
-                            "rut_seleccionado": rut_seleccionado
-                        })
-                    st.warning("✅ Cliente eliminado exitosamente.")
-                elif not confirmacion:
-                    st.error("¿Estas seguro de que deseas eliminar este cliente?")
+        if not df_clientes.empty:
+            rut_seleccionado = st.selectbox("Seleccione el RUT del cliente a modificar", df_clientes["rut_empresa"].unique())
+            cliente_filtrado = df_clientes[df_clientes["rut_empresa"] == rut_seleccionado]
+            if not cliente_filtrado.empty:
+                g = cliente_filtrado.iloc[0]
+                with st.form("form_editar_cliente"):
+                    nuevo_rut = st.text_input("RUT de la empresa", value=g["rut_empresa"], placeholder="Sin puntos Ej: 123456789-K")
+                    nombre = st.text_input("Nombre de la empresa", value=g["nombre_empresa"])
+                    obra = st.text_input("Obra", value=g["obra"])
+                    nombre_representante = st.text_input("Nombre del Representante", value=g["nombre_representante"])
+                    rut_representante = st.text_input("RUT del Representante", value=g["rut_representante"], placeholder="Sin puntos Ej: 123456789-K")
+                    email = st.text_input("Email del Cliente", value=g["correo"], placeholder="correo@email.com")
+                    telefono = st.text_input("Teléfono del Cliente", value=g["telefono"], placeholder="sin espacios ni caracteres Ej: 912345678")
+                    editar_button = st.form_submit_button("Guardar Cambios")
+                    if editar_button:
+                        if not nuevo_rut or not nombre:
+                            st.error("El RUT y el nombre son obligatorios.")
+                        elif nuevo_rut != rut_seleccionado and nuevo_rut in df_clientes["rut_empresa"].values:
+                            st.error("El RUT ya existe. Por favor, ingrese uno diferente.")
+                        else:
+                            with engine.begin() as conn:
+                                conn.execute(text("""
+                                    UPDATE clientes
+                                    SET rut_empresa = :nuevo_rut, nombre_empresa = :nombre, obra = :obra, 
+                                        nombre_representante = :nombre_representante, rut_representante = :rut_representante, 
+                                        correo = :correo, telefono = :telefono
+                                    WHERE rut_empresa = :rut_seleccionado
+                                """), {
+                                    "nuevo_rut": nuevo_rut,
+                                    "nombre": nombre,
+                                    "obra": obra,
+                                    "nombre_representante": nombre_representante,
+                                    "rut_representante": rut_representante,
+                                    "correo": email,
+                                    "telefono": telefono if telefono else None,
+                                    "rut_seleccionado": rut_seleccionado
+                                })
+                            st.success("✅ Cliente actualizado exitosamente.")
+                    eliminar_button = st.form_submit_button("Eliminar Cliente")
+                    if eliminar_button:
+                        confirmacion = st.checkbox("CONFIRMAR ELIMINACIÓN")
+                        if confirmacion:
+                            with engine.begin() as conn:
+                                conn.execute(text("""
+                                    DELETE FROM clientes WHERE rut_empresa = :rut_seleccionado
+                                """), {
+                                    "rut_seleccionado": rut_seleccionado
+                                })
+                            st.warning("✅ Cliente eliminado exitosamente.")
+                        elif not confirmacion:
+                            st.error("¿Estas seguro de que deseas eliminar este cliente?")
+            else:
+                st.warning("No se encontró el cliente seleccionado.")
+        else:
+            st.info("No hay clientes registrados.")
 
 
 elif menu == "Contratos":
