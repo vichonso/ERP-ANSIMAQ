@@ -70,7 +70,7 @@ st.markdown("""
 
 
 # Conexión a la base de datos PostgreSQL
-engine = create_engine('postgresql+psycopg2://bdd_nqcs_user:Bt4Z23ApSCu2756uM4GWJUMYdfE3gbmQ@dpg-d1q292jipnbc738jeeb0-a.oregon-postgres.render.com/bdd_nqcs')
+engine = create_engine('postgresql+psycopg2://postgres:pc-database@localhost:5432/ansimaq_bdd')
 
 
 # Funciones para cargar datos de las tablas principales
@@ -884,24 +884,68 @@ elif menu == "Contratos":
                         st.error("El folio ya existe. Por favor, ingrese uno diferente.")
                     else:
                         with engine.begin() as conn:
-                            conn.execute(text("""
-                                UPDATE contrato
-                                SET folio = :folio, rut_empresa = :rut_empresa, precio_mensual = :precio_mensual, 
-                                    horas_contrtadas = :horas_contratadas, fecha_inicio_contrato = :fecha_inicio_contrato, 
-                                    fecha_termino_contrato = :fecha_termino_contrato, egreso_arriendo = :egreso_arriendo, 
-                                    precio_envio = :precio_envio
-                                WHERE folio = :folio_seleccionado
-                            """), {
-                                "folio": int(folio),
-                                "rut_empresa": rut_empresa,
-                                "precio_mensual": precio_nuevo,
-                                "horas_contratadas": horas_contratadas,
-                                "fecha_inicio_contrato": fecha_inicio,
-                                "fecha_termino_contrato": fecha_termino,
-                                "egreso_arriendo": egreso_arriendo,
-                                "precio_envio": precio_envio,
-                                "folio_seleccionado": folio_seleccionado
-                            })
+                            if int(folio) != int(folio_seleccionado):
+                                # 1. Insertar nuevo contrato con el nuevo folio y datos actualizados
+                                conn.execute(text("""
+                                    INSERT INTO contrato (folio, rut_empresa, precio_mensual, horas_contrtadas, fecha_inicio_contrato, fecha_termino_contrato, egreso_arriendo, precio_envio)
+                                    VALUES (:folio, :rut_empresa, :precio_mensual, :horas_contratadas, :fecha_inicio_contrato, :fecha_termino_contrato, :egreso_arriendo, :precio_envio)
+                                """), {
+                                    "folio": int(folio),
+                                    "rut_empresa": rut_empresa,
+                                    "precio_mensual": precio_nuevo,
+                                    "horas_contratadas": horas_contratadas,
+                                    "fecha_inicio_contrato": fecha_inicio,
+                                    "fecha_termino_contrato": fecha_termino,
+                                    "egreso_arriendo": egreso_arriendo,
+                                    "precio_envio": precio_envio
+                                })
+                                # 2. Actualizar historial_contrato
+                                conn.execute(text("""
+                                    UPDATE historial_contrato
+                                    SET folio = :nuevo_folio
+                                    WHERE folio = :folio_seleccionado
+                                """), {
+                                    "nuevo_folio": int(folio),
+                                    "folio_seleccionado": folio_seleccionado
+                                })
+                                # 3. Actualizar cobros si existe la columna folio
+                                try:
+                                    conn.execute(text("""
+                                        UPDATE cobros
+                                        SET folio = :nuevo_folio
+                                        WHERE folio = :folio_seleccionado
+                                    """), {
+                                        "nuevo_folio": int(folio),
+                                        "folio_seleccionado": folio_seleccionado
+                                    })
+                                except Exception:
+                                    pass
+                                # 4. Eliminar el contrato antiguo
+                                conn.execute(text("""
+                                    DELETE FROM contrato WHERE folio = :folio_seleccionado
+                                """), {
+                                    "folio_seleccionado": folio_seleccionado
+                                })
+                                folio_seleccionado = int(folio)
+                            else:
+                                # Solo actualizar los campos si el folio no cambia
+                                conn.execute(text("""
+                                    UPDATE contrato
+                                    SET rut_empresa = :rut_empresa, precio_mensual = :precio_mensual, 
+                                        horas_contrtadas = :horas_contratadas, fecha_inicio_contrato = :fecha_inicio_contrato, 
+                                        fecha_termino_contrato = :fecha_termino_contrato, egreso_arriendo = :egreso_arriendo, 
+                                        precio_envio = :precio_envio
+                                    WHERE folio = :folio_seleccionado
+                                """), {
+                                    "rut_empresa": rut_empresa,
+                                    "precio_mensual": precio_nuevo,
+                                    "horas_contratadas": horas_contratadas,
+                                    "fecha_inicio_contrato": fecha_inicio,
+                                    "fecha_termino_contrato": fecha_termino,
+                                    "egreso_arriendo": egreso_arriendo,
+                                    "precio_envio": precio_envio,
+                                    "folio_seleccionado": folio_seleccionado
+                                })
                             # Actualizar historial inicial (no crear uno nuevo)
                             if not historial_inicial.empty:
                                 id_historial = int(historial_inicial["id_historial"].iloc[0])
@@ -1006,8 +1050,17 @@ elif menu == "Historial de Contratos":
             # Unir con clientes para obtener nombre_empresa
             if df_clientes is not None and "rut_empresa" in servicios_folio.columns:
                 servicios_folio = servicios_folio.merge(df_clientes[["rut_empresa", "nombre_empresa"]], on="rut_empresa", how="left")
-            # Renombrar columnas
-            servicios_folio = servicios_folio.rename(columns={
+            # Asegurar que egreso_equipo esté presente, uniendo con cobros si es necesario
+            if "egreso_equipo" not in servicios_folio.columns:
+                try:
+                    df_cobros = cargar_cobros()
+                    servicios_folio = servicios_folio.merge(
+                        df_cobros[["id_historial", "egreso_equipo"]],
+                        left_on="id_historial", right_on="id_historial", how="left"
+                    )
+                except Exception:
+                    servicios_folio["egreso_equipo"] = None
+            rename_dict = {
                 "id_historial": "ID del historial",
                 "folio": "Folio",
                 "numero_vigente": "Numero vigente",
@@ -1015,8 +1068,10 @@ elif menu == "Historial de Contratos":
                 "fecha_servicio": "Fecha del servicio",
                 "horometro": "Horometro",
                 "rut_empresa": "Rut de la empresa",
-                "nombre_empresa": "Nombre de la empresa"
-            })
+                "nombre_empresa": "Nombre de la empresa",
+                "egreso_equipo": "Egreso del equipo"
+            }
+            servicios_folio = servicios_folio.rename(columns=rename_dict)
             columnas_mostrar = [
                 "ID del historial",
                 "Folio",
@@ -1024,6 +1079,7 @@ elif menu == "Historial de Contratos":
                 "Tipo de servicio",
                 "Fecha del servicio",
                 "Horometro",
+                "Egreso del equipo",
                 "Rut de la empresa",
                 "Nombre de la empresa"
             ]
@@ -1085,7 +1141,7 @@ elif menu == "Historial de Contratos":
 
             with st.form("form_agregar_historial"):
                 numero_vigente = st.selectbox("Seleccione el número vigente del equipo", equipos_disponibles, index=equipos_disponibles.index(equipo_actual) if equipo_actual in equipos_disponibles else 0)
-                tipo_servicio = st.selectbox("Seleccione el tipo de servicio", ["Mantenimiento", "Reparación", "Cambio del equipo", "Entrega en obra", "Otro"])
+                tipo_servicio = st.selectbox("Seleccione el tipo de servicio", ["Mantenimiento", "Reparación", "Inspección", "Cambio del equipo", "Entrega en obra", "Otro"])
                 fecha_servicio = st.date_input("Fecha del servicio")
                 horometro = st.number_input("Horómetro al momento del servicio", min_value=0, step=1, value=0)
 
@@ -1212,8 +1268,17 @@ elif menu == "Historial de Contratos":
             # Unir con clientes para obtener nombre_empresa
             if df_clientes is not None and "rut_empresa" in historial_folio.columns:
                 historial_folio = historial_folio.merge(df_clientes[["rut_empresa", "nombre_empresa"]], on="rut_empresa", how="left")
-            # Renombrar columnas
-            historial_folio = historial_folio.rename(columns={
+            # Asegurar que egreso_equipo esté presente, uniendo con cobros si es necesario
+            if "egreso_equipo" not in historial_folio.columns:
+                try:
+                    df_cobros = cargar_cobros()
+                    historial_folio = historial_folio.merge(
+                        df_cobros[["id_historial", "egreso_equipo"]],
+                        left_on="id_historial", right_on="id_historial", how="left"
+                    )
+                except Exception:
+                    historial_folio["egreso_equipo"] = None
+            rename_dict = {
                 "id_historial": "ID del historial",
                 "folio": "Folio",
                 "numero_vigente": "Numero vigente",
@@ -1221,8 +1286,10 @@ elif menu == "Historial de Contratos":
                 "fecha_servicio": "Fecha del servicio",
                 "horometro": "Horometro",
                 "rut_empresa": "Rut de la empresa",
-                "nombre_empresa": "Nombre de la empresa"
-            })
+                "nombre_empresa": "Nombre de la empresa",
+                "egreso_equipo": "Egreso del equipo"
+            }
+            historial_folio = historial_folio.rename(columns=rename_dict)
             columnas_mostrar = [
                 "ID del historial",
                 "Folio",
@@ -1230,6 +1297,7 @@ elif menu == "Historial de Contratos":
                 "Tipo de servicio",
                 "Fecha del servicio",
                 "Horometro",
+                "Egreso del equipo",
                 "Rut de la empresa",
                 "Nombre de la empresa"
             ]
@@ -1249,7 +1317,7 @@ elif menu == "Historial de Contratos":
 
                 with st.form("form_editar_historial"):
                     numero_vigente = st.selectbox("Seleccione el número vigente del equipo", equipos_disponibles, index=equipos_disponibles.index(equipo_actual) if equipo_actual in equipos_disponibles else 0)
-                    tipos_servicio = ["Mantenimiento", "Reparación", "Cambio del equipo", "Entrega en obra", "Otro"]
+                    tipos_servicio = ["Mantenimiento", "Reparación", "Inspección", "Cambio del equipo", "Entrega en obra", "Otro"]
                     # Usar el nombre de columna renombrado
                     valor_tipo_servicio = registro_seleccionado["Tipo de servicio"] if "Tipo de servicio" in registro_seleccionado else None
                     tipo_servicio = st.selectbox(
@@ -1359,31 +1427,37 @@ elif menu == "Historial de Contratos":
                 
                 if eliminar_button:
                     if confirmacion:
+                        # Acceso robusto a los campos para evitar KeyError si están renombrados
+                        def get_col(registro, *nombres):
+                            for n in nombres:
+                                if n in registro:
+                                    return registro[n]
+                            return None
+                        tipo_servicio_borrar = get_col(registro_seleccionado, "tipo_servicio", "Tipo de servicio")
+                        equipo_borrar = get_col(registro_seleccionado, "numero_vigente", "Numero vigente")
+                        folio_borrar = get_col(registro_seleccionado, "folio", "Folio")
+                        # Buscar el nombre correcto de la columna id_historial
+                        id_hist_col = None
+                        for col in ["id_historial", "ID del historial"]:
+                            if col in historial_folio.columns:
+                                id_hist_col = col
+                                break
+                        equipo_anterior = None
                         with engine.begin() as conn:
-                            # Revisar si el historial es de tipo 'Cambio del equipo'
-                            tipo_servicio_borrar = registro_seleccionado["tipo_servicio"]
-                            equipo_borrar = registro_seleccionado["numero_vigente"]
-                            folio_borrar = registro_seleccionado["folio"]
-                            equipo_anterior = None
                             if tipo_servicio_borrar == "Cambio del equipo":
-                                # Buscar el historial anterior a este para el mismo folio
-                                prev_historial = historial_folio[historial_folio["id_historial"] < id_historial_seleccionado]
-                                if not prev_historial.empty:
-                                    equipo_anterior = prev_historial.sort_values("id_historial").iloc[-1]["numero_vigente"]
-                            # Eliminar el registro del historial
+                                if id_hist_col:
+                                    prev_historial = historial_folio[historial_folio[id_hist_col] < id_historial_seleccionado]
+                                    if not prev_historial.empty:
+                                        # Buscar el nombre correcto de la columna numero_vigente
+                                        num_vig_col = "numero_vigente" if "numero_vigente" in prev_historial.columns else "Numero vigente"
+                                        equipo_anterior = prev_historial.sort_values(id_hist_col).iloc[-1][num_vig_col]
                             conn.execute(text("DELETE FROM historial_contrato WHERE id_historial = :id_historial"), {"id_historial": id_historial_seleccionado})
-                            # Si había un cobro asociado, eliminarlo también
                             conn.execute(text("DELETE FROM cobros WHERE id_historial = :id_historial"), {"id_historial": id_historial_seleccionado})
-                            # Lógica de estado de equipos según tipo de servicio
                             if tipo_servicio_borrar == "Cambio del equipo" and equipo_anterior:
-                                # El equipo anterior vuelve a estar en arriendo, el borrado queda disponible
                                 conn.execute(text("UPDATE equipos SET estado = 2 WHERE numero_vigente = :numero_vigente"), {"numero_vigente": equipo_anterior})
                                 conn.execute(text("UPDATE equipos SET estado = 1 WHERE numero_vigente = :numero_vigente"), {"numero_vigente": equipo_borrar})
                             else:
-                                # Actualizar el estado del equipo a "Disponible" (estado 1)
-                                conn.execute(text("""
-                                    UPDATE equipos SET estado = 1 WHERE numero_vigente = :numero_vigente
-                                """), {"numero_vigente": numero_vigente})
+                                conn.execute(text("UPDATE equipos SET estado = 1 WHERE numero_vigente = :numero_vigente"), {"numero_vigente": equipo_borrar})
                         st.warning("✅ Registro del historial eliminado exitosamente.")
 
 
