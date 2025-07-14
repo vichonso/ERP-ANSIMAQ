@@ -85,29 +85,29 @@ def cargar_clientes():
 
 def cargar_contratos():
     query = """
-        SELECT contratos.*, clientes.nombre_empresa, clientes.nombre_representante, clientes.rut_representante, clientes.obra, clientes.correo, clientes.telefono
-        FROM contratos
-        JOIN clientes ON contratos.rut_empresa = clientes.rut_empresa
+        SELECT contrato.*, clientes.nombre_empresa, clientes.nombre_representante, clientes.rut_representante, clientes.obra, clientes.correo, clientes.telefono
+        FROM contrato
+        JOIN clientes ON contrato.rut_empresa = clientes.rut_empresa
     """
     df = pd.read_sql(query, engine)
     return df
 
 def cargar_cobros():
     query = """
-        SELECT cobros.id_cobros, cobros.id_historial, cobros.numero_vigente, cobros.folio, cobros.fecha_pago, cobros.horas_extra, cobros.costo_hora_extra, cobros.estado, cobros.cobro, cobros.egreso_equipo, cobros.mes, cobros.anio, contratos.rut_empresa, clientes.nombre_empresa
+        SELECT cobros.id_cobros, cobros.id_historial, cobros.numero_vigente, cobros.folio, cobros.fecha_pago, cobros.horas_extra, cobros.costo_hora_extra, cobros.estado, cobros.cobro, cobros.egreso_equipo, cobros.mes, cobros.anio, contrato.rut_empresa, clientes.nombre_empresa
         FROM cobros
-        JOIN contratos ON cobros.folio = contratos.folio
-        JOIN clientes ON contratos.rut_empresa = clientes.rut_empresa
+        JOIN contrato ON cobros.folio = contrato.folio
+        JOIN clientes ON contrato.rut_empresa = clientes.rut_empresa
     """
     df = pd.read_sql(query, engine)
     return df
 
 def cargar_historial_contrato():
     query = """
-        SELECT historial_contrato.*, contratos.folio, contratos.rut_empresa, clientes.nombre_empresa
+        SELECT historial_contrato.*, contrato.folio, contrato.rut_empresa, clientes.nombre_empresa
         FROM historial_contrato
-        JOIN contratos ON historial_contratos.folio = contratos.folio
-        JOIN clientes ON contratos.rut_empresa = clientes.rut_empresa
+        JOIN contrato ON historial_contrato.folio = contrato.folio
+        JOIN clientes ON contrato.rut_empresa = clientes.rut_empresa
     """
     df = pd.read_sql(query, engine)
     return df
