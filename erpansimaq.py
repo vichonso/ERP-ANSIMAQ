@@ -1480,9 +1480,9 @@ elif menu == "Cobros":
         df_cobros = df_cobros.loc[:, ~df_cobros.columns.duplicated()]
         # Filtrar para mostrar solo contratos donde egreso_equipo es nulo o cero (no mostrar contratos de mantenciones/reparaciones)
         if "egreso_equipo" in df_cobros.columns:
-            df_cobros = df_cobros[(df_cobros["egreso_equipo"].isnull()) | (df_cobros["egreso_equipo"] == 0)]
-        else:
             df_cobros = df_cobros[df_cobros["egreso_equipo"].isnull()]
+        else:
+            df_cobros = df_cobros[df_cobros.get("egreso_equipo", pd.Series([None]*len(df_cobros))).isnull()]
         # Determinar contratos vigentes y no vigentes
         import datetime
         hoy = datetime.date.today()
