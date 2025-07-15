@@ -742,14 +742,14 @@ elif menu == "Contratos":
 
         # Solo equipos disponibles (estado == 1)
         equipos_disponibles = df_equipos[df_equipos["estado"] == 1]["numero_vigente"].tolist()
+        rut_empresa = st.selectbox("Seleccione el RUT de la empresa", df_clientes["rut_empresa"].unique())
+        cliente_seleccionado = df_clientes[df_clientes["rut_empresa"] == rut_empresa].iloc[0]
+        st.write(f"Nombre de la empresa: {cliente_seleccionado['nombre_empresa']}")
+        st.write(f"Rut del representante: {cliente_seleccionado['rut_representante']}")
+        st.write(f"Nombre del representante: {cliente_seleccionado['nombre_representante']}")
 
         with st.form("form_agregar_contrato"):
-            rut_empresa = st.selectbox("Seleccione el RUT de la empresa", df_clientes["rut_empresa"].unique())
-            cliente_seleccionado = df_clientes[df_clientes["rut_empresa"] == rut_empresa].iloc[0]
-            st.write(f"Nombre de la empresa: {cliente_seleccionado['nombre_empresa']}")
-            st.write(f"Rut del representante: {cliente_seleccionado['rut_representante']}")
-            st.write(f"Nombre del representante: {cliente_seleccionado['nombre_representante']}")
-
+            
             fecha_inicio = st.date_input("Fecha de inicio del contrato")
             indefinido = st.checkbox("Contrato a plazo indefinido")
             if indefinido:
